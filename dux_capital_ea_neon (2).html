@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DUX CAPITAL EA — Automated FX Execution</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0A0612;
+    --panel: rgba(255,255,255,0.03);
+    --panel-solid: #150C22;
+    --line: rgba(233,75,178,0.18);
+    --text: #F4EEFA;
+    --muted: #A99BC2;
+    --pink: #F14BB2;
+    --pink-2: #FF8AD4;
+    --purple: #7C3AED;
+    --purple-2: #9B5DE5;
+    --green: #3FE0A5;
+    --font-display: 'Poppins', sans-serif;
+    --font-body: 'Inter', 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background: #0A0612;
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height:100vh;
+    overflow-x:hidden;
+    position:relative;
+  }
+  /* ambient glow orbs */
+  body:before, body:after{
+    content:""; position:fixed; border-radius:50%; filter:blur(90px); z-index:0; pointer-events:none;
+  }
+  body:before{ width:520px; height:520px; background:radial-gradient(circle, rgba(241,75,178,0.35), transparent 70%); top:-120px; left:-100px; }
+  body:after{ width:600px; height:600px; background:radial-gradient(circle, rgba(124,58,237,0.32), transparent 70%); top:200px; right:-160px; }
+  a{color:inherit;}
+  * { position:relative; z-index:1; }
+
+  section{ padding: 80px 5%; }
+  .eyebrow{
+    font-family:var(--font-mono); color:var(--pink-2); font-size:12px;
+    letter-spacing:0.16em; text-transform:uppercase; margin-bottom:14px;
+  }
+  .section-head{ max-width:620px; margin-bottom:40px; }
+  .section-head h2{ font-family:var(--font-display); font-size:clamp(26px,3.4vw,36px); font-weight:700; line-height:1.15;}
+  .section-head p{ color:var(--muted); margin-top:12px; font-size:14.5px; line-height:1.65;}
+
+  .glass{
+    background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+    border:1px solid var(--line);
+    border-radius:20px;
+    backdrop-filter: blur(6px);
+  }
+
+  /* ---------- TICKER ---------- */
+  .ticker-wrap{ background:#0D0716; border-bottom:1px solid var(--line); overflow:hidden; white-space:nowrap; padding:9px 0; }
+  .ticker{ display:inline-flex; animation: scroll 22s linear infinite; font-family:var(--font-mono); font-size:12.5px; }
+  .ticker span{ margin-right:36px; color:var(--muted); }
+  .ticker span b{ color:var(--text); font-weight:600; margin-right:6px;}
+  .up{color:var(--green);} .down{color:var(--pink);}
+  @keyframes scroll{ 0%{transform:translateX(0);} 100%{transform:translateX(-50%);} }
+  .live-dot{ display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--green); margin-right:8px; box-shadow:0 0 8px var(--green); animation:pulse 1.4s infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+
+  /* ---------- NAV ---------- */
+  nav{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 5%; border-bottom:1px solid var(--line); position:sticky; top:0;
+    background:rgba(10,6,18,0.85); backdrop-filter: blur(12px); z-index:50;
+  }
+  .brand{ font-family:var(--font-display); font-weight:800; font-size:19px; letter-spacing:0.01em;}
+  .brand span{
+    background:linear-gradient(90deg, var(--pink-2), var(--purple-2));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .navlinks{display:flex; gap:30px;}
+  .navlinks a{ color:var(--muted); font-size:14px; text-decoration:none; transition:0.2s; }
+  .navlinks a:hover{ color:var(--pink-2); }
+  .cta-nav{
+    background:linear-gradient(135deg, var(--pink), var(--purple));
+    color:#fff; font-weight:700; padding:10px 18px; border-radius:30px;
+    text-decoration:none; font-size:13.5px; box-shadow:0 0 20px rgba(241,75,178,0.35);
+  }
+
+  /* ---------- HERO ---------- */
+  .hero{ padding: 80px 5% 50px; display:grid; grid-template-columns: 1fr; gap:40px; text-align:center; }
+  .hero-inner{ max-width:720px; margin:0 auto; }
+  h1{ font-family:var(--font-display); font-size:clamp(34px,5.5vw,58px); line-height:1.08; font-weight:800; margin-bottom:20px;}
+  h1 span{
+    background:linear-gradient(90deg, var(--pink-2), var(--purple-2));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .hero p.lead{ color:var(--muted); font-size:16.5px; max-width:560px; line-height:1.65; margin:0 auto 30px; }
+  .hero-buttons{ display:flex; gap:14px; flex-wrap:wrap; justify-content:center; margin-bottom:20px;}
+  .btn-primary{
+    background:linear-gradient(135deg, var(--pink), var(--purple));
+    color:#fff; font-weight:700; padding:16px 30px;
+    border-radius:14px; text-decoration:none; font-size:15px; display:inline-flex; align-items:center; gap:10px;
+    box-shadow:0 0 30px rgba(241,75,178,0.4);
+  }
+  .btn-secondary{ border:1px solid var(--line); color:var(--text); padding:16px 28px; border-radius:14px; text-decoration:none; font-size:15px;}
+
+  /* ---------- ROBOT CARD (mirrors app) ---------- */
+  .robot-card{
+    max-width:560px; margin:0 auto; padding:50px 40px; text-align:center;
+    box-shadow: 0 0 60px rgba(241,75,178,0.15), inset 0 0 0 1px rgba(255,255,255,0.03);
+  }
+  .robot-card .tag{ color:var(--muted); font-size:14px; margin-bottom:8px; }
+  .robot-card h2{ font-family:var(--font-display); font-size:clamp(28px,4vw,40px); font-weight:800;
+    text-shadow: 0 0 30px rgba(241,75,178,0.5); margin-bottom:10px; }
+  .robot-card .mentor{ color:var(--muted); font-size:14.5px; }
+  .robot-card .mentor b{ color:var(--pink-2); }
+  .robot-badge{
+    display:inline-flex; align-items:center; gap:8px; margin-top:24px;
+    background:rgba(63,224,165,0.1); border:1px solid rgba(63,224,165,0.3);
+    color:var(--green); font-family:var(--font-mono); font-size:12px; padding:8px 16px; border-radius:30px;
+  }
+  .mascot-ring{
+    width:110px; height:110px; border-radius:50%; margin:0 auto 22px;
+    display:flex; align-items:center; justify-content:center;
+    background: radial-gradient(circle, rgba(241,75,178,0.18), transparent 70%);
+    border:2px solid var(--pink-2);
+    box-shadow:0 0 30px rgba(241,75,178,0.5), inset 0 0 20px rgba(241,75,178,0.15);
+  }
+  .mascot-ring svg{ width:64px; height:64px; }
+  .nav-mascot{ width:30px; height:30px; border-radius:50%; border:1.5px solid var(--pink-2);
+    display:inline-flex; align-items:center; justify-content:center; margin-right:8px;
+    box-shadow:0 0 12px rgba(241,75,178,0.4); vertical-align:middle; }
+  .nav-mascot svg{ width:18px; height:18px; }
+
+  /* ---------- MARKET STRIP ---------- */
+  .market-strip{ display:flex; justify-content:center; gap:50px; padding:30px 5%; border-top:1px solid var(--line); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .market-strip .m{ font-family:var(--font-mono); color:var(--muted); font-size:13.5px; letter-spacing:0.04em;}
+  .market-strip .m b{ color:var(--pink-2); }
+
+  /* ---------- FEATURES ---------- */
+  .feature-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+  .feature-card{ padding:28px; }
+  .feature-card .icon{
+    width:42px; height:42px; border-radius:12px;
+    background:linear-gradient(135deg, rgba(241,75,178,0.15), rgba(124,58,237,0.15));
+    color:var(--pink-2); display:flex; align-items:center; justify-content:center;
+    font-family:var(--font-mono); font-weight:700; margin-bottom:18px; font-size:15px;
+  }
+  .feature-card h3{ font-family:var(--font-display); font-size:17px; margin-bottom:10px; font-weight:700;}
+  .feature-card p{ color:var(--muted); font-size:14px; line-height:1.6; }
+
+  /* ---------- RISK MODES ---------- */
+  .mode-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+  .mode-card{ padding:28px; position:relative; }
+  .mode-card.active{ border-color:rgba(241,75,178,0.5); box-shadow:0 0 30px rgba(241,75,178,0.12); }
+  .mode-card.active:before{
+    content:"RECOMMENDED"; position:absolute; top:-11px; left:22px;
+    background:linear-gradient(135deg, var(--pink), var(--purple)); color:#fff;
+    font-family:var(--font-mono); font-size:10px; padding:4px 10px; border-radius:20px;
+    font-weight:700; letter-spacing:0.05em;
+  }
+  .mode-card h3{ font-family:var(--font-display); font-size:19px; margin-bottom:6px; font-weight:700; color:var(--pink-2);}
+  .mode-card .tag{ font-family:var(--font-mono); font-size:11px; color:var(--muted); margin-bottom:18px; }
+  .mode-row{ display:flex; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .mode-row:last-child{ border-bottom:none; }
+  .mode-row .k{ color:var(--muted); }
+  .mode-row .v{ font-family:var(--font-mono); color:var(--text); }
+
+  /* ---------- PAIRS ---------- */
+  .pair-list{ display:flex; flex-direction:column; gap:14px; }
+  .pair-item{ padding:22px 26px; display:grid; grid-template-columns:110px 1fr 170px; gap:22px; align-items:center; }
+  .pair-item .pname{ font-family:var(--font-display); font-size:18px; font-weight:700; color:var(--pink-2); }
+  .pair-item .pdesc{ color:var(--muted); font-size:13.5px; line-height:1.6; }
+  .pair-stats{ display:flex; gap:18px; justify-content:flex-end; }
+  .pair-stats div{ text-align:right; }
+  .pair-stats .lbl{ font-size:10px; color:var(--muted); font-family:var(--font-mono); }
+  .pair-stats .val{ font-family:var(--font-mono); font-size:16px; color:var(--green); font-weight:600; }
+
+  /* ---------- STATS ---------- */
+  .stat-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+  .stat-card{ padding:22px; }
+  .stat-card .stat-label{ color:var(--muted); font-size:12px; margin-bottom:10px; }
+  .stat-card .stat-value{ font-family:var(--font-mono); font-size:27px; font-weight:700; color:var(--pink-2);}
+  .stat-value.warn{color:var(--purple-2);}
+  .stat-card .stat-sub{ font-size:11px; color:var(--muted); margin-top:6px; font-family:var(--font-mono);}
+  .chart-row{ display:grid; grid-template-columns:1.3fr 0.7fr; gap:20px; margin-top:20px; }
+  .panel{ padding:22px;}
+  .panel h3{ font-family:var(--font-display); font-size:15px; margin-bottom:16px; font-weight:700;}
+
+  .disclaimer{
+    font-size:11.5px; color:var(--muted); line-height:1.6; padding:16px 20px; margin-top:24px;
+  }
+  .disclaimer b{ color:var(--pink-2); }
+
+  /* ---------- PRICING ---------- */
+  .pricing-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:20px; }
+  .price-card{ padding:28px; display:flex; flex-direction:column; gap:14px; }
+  .price-card.highlight{ border-color:rgba(241,75,178,0.5); box-shadow:0 0 30px rgba(241,75,178,0.15); position:relative; }
+  .price-card.highlight:before{
+    content:"MOST REQUESTED"; position:absolute; top:-11px; left:22px;
+    background:linear-gradient(135deg, var(--pink), var(--purple)); color:#fff; font-family:var(--font-mono); font-size:10px;
+    padding:4px 10px; border-radius:20px; font-weight:700; letter-spacing:0.05em;
+  }
+  .price-card h4{ font-family:var(--font-display); font-size:17px; font-weight:700;}
+  .price-card .price{ font-family:var(--font-mono); font-size:22px; color:var(--pink-2); font-weight:700;}
+  .price-card ul{ list-style:none; color:var(--muted); font-size:13.5px; line-height:2; }
+  .price-card ul li:before{ content:"— "; color:var(--pink-2); }
+
+  /* ---------- FAQ ---------- */
+  .faq-item{ border-bottom:1px solid var(--line); padding:18px 0; cursor:pointer; }
+  .faq-item:last-child{ border-bottom:none; }
+  .faq-item .q{ display:flex; justify-content:space-between; align-items:center; font-family:var(--font-display); font-size:15px; font-weight:700; }
+  .faq-item .a{ max-height:0; overflow:hidden; transition:max-height 0.3s ease; color:var(--muted); font-size:13.5px; line-height:1.65; }
+  .faq-item.open .a{ max-height:200px; padding-top:12px; }
+  .faq-item .q .arrow{ transition:0.3s; color:var(--pink-2); font-family:var(--font-mono); }
+  .faq-item.open .q .arrow{ transform:rotate(45deg); }
+
+  .final-cta{ text-align:center; padding:90px 5%; }
+  .final-cta .glass{ max-width:700px; margin:0 auto; padding:60px 40px; }
+  .final-cta h2{ font-family:var(--font-display); font-size:clamp(26px,4vw,38px); margin-bottom:14px; font-weight:800;}
+  .final-cta p{ color:var(--muted); font-size:15px; margin-bottom:26px; }
+
+  footer{ padding:36px 5%; display:flex; justify-content:space-between; align-items:center; color:var(--muted); font-size:12px; flex-wrap:wrap; gap:12px; border-top:1px solid var(--line);}
+  .wa-float{
+    position:fixed; bottom:26px; right:26px; background:linear-gradient(135deg, var(--pink), var(--purple));
+    color:#fff; font-weight:700; padding:15px 22px; border-radius:50px; text-decoration:none;
+    display:flex; align-items:center; gap:10px; font-size:14px; box-shadow:0 0 30px rgba(241,75,178,0.45); z-index:60;
+  }
+
+  @media(max-width:900px){
+    .feature-grid, .mode-grid, .stat-grid{ grid-template-columns:1fr 1fr; }
+    .chart-row{ grid-template-columns:1fr; }
+    .pricing-grid{ grid-template-columns:1fr; }
+    .navlinks{ display:none; }
+    .pair-item{ grid-template-columns:1fr; }
+    .pair-stats{ justify-content:flex-start; }
+  }
+  @media(max-width:520px){
+    .feature-grid, .mode-grid, .stat-grid{ grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="ticker-wrap"><div class="ticker" id="tickerStrip"></div></div>
+
+<nav>
+  <div class="brand">
+    <span class="nav-mascot">
+      <svg viewBox="0 0 64 64" fill="none" stroke="#FF8AD4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 26 C10 14, 4 10, 4 10 C10 8, 18 10, 22 18"/>
+        <path d="M50 26 C54 14, 60 10, 60 10 C54 8, 46 10, 42 18"/>
+        <ellipse cx="32" cy="34" rx="16" ry="18"/>
+        <path d="M24 30 L20 26 M40 30 L44 26"/>
+        <circle cx="26" cy="33" r="2" fill="#FF8AD4"/>
+        <circle cx="38" cy="33" r="2" fill="#FF8AD4"/>
+        <path d="M28 42 Q32 46 36 42"/>
+      </svg>
+    </span>DUX <span>CAPITAL</span> EA
+  </div>
+  <div class="navlinks">
+    <a href="#how">How it works</a>
+    <a href="#modes">Risk Modes</a>
+    <a href="#pairs">Pairs</a>
+    <a href="#pricing">Get Access</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="hero-inner">
+    <div class="eyebrow" style="text-align:center;">Automated FX Execution</div>
+    <h1>Trade like it's <span>on autopilot</span></h1>
+    <p class="lead">DUX CAPITAL EA reads EMA trend, RSI momentum, and ADX strength together before it opens a single position on EURUSD, GBPUSD, and USDJPY — disciplined, rule-based, running around the clock.</p>
+    <div class="hero-buttons">
+      <a class="btn-secondary" href="#performance">View Live Chart</a>
+    </div>
+  </div>
+
+  <div class="robot-card glass">
+    <div class="mascot-ring">
+      <svg viewBox="0 0 64 64" fill="none" stroke="#FF8AD4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 26 C10 14, 4 10, 4 10 C10 8, 18 10, 22 18"/>
+        <path d="M50 26 C54 14, 60 10, 60 10 C54 8, 46 10, 42 18"/>
+        <ellipse cx="32" cy="34" rx="16" ry="18"/>
+        <path d="M24 30 L20 26 M40 30 L44 26"/>
+        <circle cx="26" cy="33" r="2" fill="#FF8AD4"/>
+        <circle cx="38" cy="33" r="2" fill="#FF8AD4"/>
+        <path d="M28 42 Q32 46 36 42"/>
+      </svg>
+    </div>
+    <div class="tag">You are trading with</div>
+    <h2>DUX CAPITAL EA</h2>
+    <div class="mentor">Mentor: <b>Duxxa</b></div>
+    <div class="robot-badge"><span class="live-dot"></span>LIVE ON EURUSD · GBPUSD · USDJPY</div>
+  </div>
+</section>
+
+<div class="market-strip">
+  <div class="m">Built for <b>MetaTrader 4 / 5</b></div>
+  <div class="m"><b>EURUSD</b> · <b>GBPUSD</b> · <b>USDJPY</b></div>
+  <div class="m">Runs <b>24/5</b> — never sleeps</div>
+</div>
+
+<section id="how">
+  <div class="section-head" style="text-align:center; max-width:600px; margin-left:auto; margin-right:auto;">
+    <div class="eyebrow" style="text-align:center;">How it works</div>
+    <h2>Three filters. One decision.</h2>
+    <p>The EA doesn't fire on a single signal — it stacks three layers before every entry.</p>
+  </div>
+  <div class="feature-grid">
+    <div class="feature-card glass">
+      <div class="icon">01</div>
+      <h3>EMA Trend Filter</h3>
+      <p>Fast and slow moving averages set direction bias first. No trades against the prevailing trend.</p>
+    </div>
+    <div class="feature-card glass">
+      <div class="icon">02</div>
+      <h3>RSI Momentum Trigger</h3>
+      <p>Once direction is confirmed, RSI pinpoints overbought/oversold pressure to time the entry.</p>
+    </div>
+    <div class="feature-card glass">
+      <div class="icon">03</div>
+      <h3>ADX Strength Gate</h3>
+      <p>ADX filters out flat, choppy conditions — trades fire only when the market has real direction.</p>
+    </div>
+  </div>
+</section>
+
+<section id="modes">
+  <div class="section-head">
+    <div class="eyebrow">Choose your profile</div>
+    <h2>Three risk modes, one engine</h2>
+    <p>Same core logic, different risk exposure — switch based on your account size and comfort with drawdown.</p>
+  </div>
+  <div class="mode-grid">
+    <div class="mode-card glass">
+      <h3>Conservative</h3>
+      <div class="tag">Lower risk, steadier curve</div>
+      <div class="mode-row"><span class="k">Risk per trade</span><span class="v">0.5%</span></div>
+      <div class="mode-row"><span class="k">Drawdown ceiling</span><span class="v">≤5%</span></div>
+      <div class="mode-row"><span class="k">Timeframe</span><span class="v">M15</span></div>
+    </div>
+    <div class="mode-card glass active">
+      <h3>Balanced</h3>
+      <div class="tag">Default — best risk/reward fit</div>
+      <div class="mode-row"><span class="k">Risk per trade</span><span class="v">1%</span></div>
+      <div class="mode-row"><span class="k">Drawdown ceiling</span><span class="v">≤8%</span></div>
+      <div class="mode-row"><span class="k">Timeframe</span><span class="v">M5–M15</span></div>
+    </div>
+    <div class="mode-card glass">
+      <h3>Aggressive</h3>
+      <div class="tag">Higher risk, faster compounding</div>
+      <div class="mode-row"><span class="k">Risk per trade</span><span class="v">2%</span></div>
+      <div class="mode-row"><span class="k">Drawdown ceiling</span><span class="v">≤15%</span></div>
+      <div class="mode-row"><span class="k">Timeframe</span><span class="v">M1–M5</span></div>
+    </div>
+  </div>
+  <div class="disclaimer glass">
+    <b>Note:</b> Drawdown ceilings are configuration targets, not guarantees — actual drawdown can exceed these levels depending on market conditions.
+  </div>
+</section>
+
+<section id="pairs">
+  <div class="section-head">
+    <div class="eyebrow">Markets traded</div>
+    <h2>Per-pair breakdown</h2>
+  </div>
+  <div class="pair-list">
+    <div class="pair-item glass">
+      <div class="pname">EUR/USD</div>
+      <div class="pdesc">Highest liquidity in the lineup — tightest spreads, primary pair for the EMA/RSI entry logic.</div>
+      <div class="pair-stats"><div><div class="lbl">SAMPLE WIN %</div><div class="val">72%</div></div></div>
+    </div>
+    <div class="pair-item glass">
+      <div class="pname">GBP/USD</div>
+      <div class="pdesc">More volatile swings — the ADX strength gate filters harder here to avoid whipsaws.</div>
+      <div class="pair-stats"><div><div class="lbl">SAMPLE WIN %</div><div class="val">69%</div></div></div>
+    </div>
+    <div class="pair-item glass">
+      <div class="pname">USD/JPY</div>
+      <div class="pdesc">Strong trending behavior during Asia/US overlap suits the EA's trend-following bias.</div>
+      <div class="pair-stats"><div><div class="lbl">SAMPLE WIN %</div><div class="val">73%</div></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="performance">
+  <div class="section-head">
+    <div class="eyebrow"><span class="live-dot"></span>Live market view</div>
+    <h2>Performance snapshot</h2>
+    <p>Figures below are sample backtest data for this page. Ask Duxxa for the current audited report before making any decision.</p>
+  </div>
+  <div class="stat-grid">
+    <div class="stat-card glass"><div class="stat-label">Win Rate</div><div class="stat-value">71.4%</div><div class="stat-sub">n = 1,240 trades</div></div>
+    <div class="stat-card glass"><div class="stat-label">Profit Factor</div><div class="stat-value">1.86</div><div class="stat-sub">gross win / gross loss</div></div>
+    <div class="stat-card glass"><div class="stat-label">Max Drawdown</div><div class="stat-value warn">8.2%</div><div class="stat-sub">peak-to-trough</div></div>
+    <div class="stat-card glass"><div class="stat-label">Risk : Reward</div><div class="stat-value">1 : 1.4</div><div class="stat-sub">avg per trade</div></div>
+  </div>
+  <div class="chart-row">
+    <div class="panel glass"><h3>Equity Curve</h3><canvas id="equityChart" height="110"></canvas></div>
+    <div class="panel glass"><h3>Win / Loss Split</h3><canvas id="donutChart" height="110"></canvas></div>
+  </div>
+  <div class="disclaimer glass">
+    <b>Risk disclosure:</b> Forex trading carries a high level of risk and may not be suitable for everyone. Backtested performance does not guarantee future results. Only trade with capital you can afford to lose.
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="section-head">
+    <div class="eyebrow">Get access</div>
+    <h2>Get DUX CAPITAL EA</h2>
+    <p>Pricing is discussed directly with the mentor so it can be matched to your broker and account size.</p>
+  </div>
+  <div class="pricing-grid">
+    <div class="price-card glass">
+      <h4>Trial</h4>
+      <div class="price">DM to Ask</div>
+      <ul><li>Practice account setup guidance</li><li>Default parameter file</li><li>Basic support</li></ul>
+      <a class="btn-secondary" style="text-align:center" href="https://wa.me/264814021856?text=Hi%20Duxxa%2C%20I%27d%20like%20a%20trial%20of%20DUX%20CAPITAL%20EA" target="_blank">Ask for Trial</a>
+    </div>
+    <div class="price-card glass highlight">
+      <h4>Full License</h4>
+      <div class="price">DM to Ask</div>
+      <ul><li>Full EA file + setup call</li><li>All 3 risk modes included</li><li>Direct mentor support</li></ul>
+      <a class="btn-primary" style="text-align:center; justify-content:center" href="https://wa.me/264814021856?text=Hi%20Duxxa%2C%20I%27d%20like%20the%20full%20DUX%20CAPITAL%20EA%20license" target="_blank">Get Full License</a>
+    </div>
+    <div class="price-card glass">
+      <h4>Custom Setup</h4>
+      <div class="price">DM to Ask</div>
+      <ul><li>Custom risk % per trade</li><li>Additional pair tuning</li><li>Priority support</li></ul>
+      <a class="btn-secondary" style="text-align:center" href="https://wa.me/264814021856?text=Hi%20Duxxa%2C%20I%27d%20like%20a%20custom%20DUX%20CAPITAL%20EA%20setup" target="_blank">Discuss Setup</a>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="section-head">
+    <div class="eyebrow">FAQ</div>
+    <h2>Common questions</h2>
+  </div>
+  <div class="glass" style="padding:8px 26px;">
+    <div class="faq-item">
+      <div class="q">Which brokers does it work with? <span class="arrow">+</span></div>
+      <div class="a">Any MT4 or MT5 broker that allows expert advisors. Duxxa can confirm compatibility with your specific broker.</div>
+    </div>
+    <div class="faq-item">
+      <div class="q">Can I test it before buying? <span class="arrow">+</span></div>
+      <div class="a">Yes — ask about the trial option to run it on a practice account first.</div>
+    </div>
+    <div class="faq-item">
+      <div class="q">Is trading with this risk-free? <span class="arrow">+</span></div>
+      <div class="a">No. All forex trading carries risk, including the possibility of losing your capital.</div>
+    </div>
+  </div>
+</section>
+
+<div class="final-cta">
+  <div class="glass">
+    <h2>Ready to trade with DUX CAPITAL EA?</h2>
+    <p>Tap the chat button in the corner — setup, compatibility, and access all happen over one message.</p>
+  </div>
+</div>
+
+<footer>
+  <div>DUX CAPITAL EA — Mentor: Duxxa</div>
+  <div>Sample backtest data shown for illustration</div>
+</footer>
+
+<a class="wa-float" href="https://wa.me/264814021856?text=Hi%20Duxxa%2C%20I%20want%20DUX%20CAPITAL%20EA" target="_blank">💬 DM the Mentor</a>
+
+<script>
+  const pairs = [
+    {p:'EUR/USD', v:'1.0842', c:'+0.12%', up:true},
+    {p:'GBP/USD', v:'1.2701', c:'-0.08%', up:false},
+    {p:'USD/JPY', v:'156.44', c:'+0.21%', up:true},
+    {p:'USD/ZAR', v:'18.32', c:'+0.05%', up:true},
+    {p:'AUD/USD', v:'0.6512', c:'-0.15%', up:false},
+    {p:'XAU/USD', v:'2412.6', c:'+0.34%', up:true},
+  ];
+  let tickerHtml = '<span><span class="live-dot"></span></span>';
+  for(let i=0;i<2;i++){
+    pairs.forEach(x=>{ tickerHtml += `<span><b>${x.p}</b> ${x.v} <span class="${x.up?'up':'down'}">${x.c}</span></span>`; });
+  }
+  document.getElementById('tickerStrip').innerHTML = tickerHtml;
+
+  document.querySelectorAll('.faq-item').forEach(item=>{
+    item.addEventListener('click', ()=>{
+      const wasOpen = item.classList.contains('open');
+      document.querySelectorAll('.faq-item').forEach(i=>i.classList.remove('open'));
+      if(!wasOpen) item.classList.add('open');
+    });
+  });
+
+  Chart.defaults.color = '#A99BC2';
+  Chart.defaults.font.family = "'JetBrains Mono', monospace";
+
+  function equityData(){
+    let val = 1000; const arr = [val];
+    for(let i=0;i<40;i++){ val += (Math.random()*90 - 30); arr.push(Math.round(val)); }
+    return arr;
+  }
+  const eqData = equityData();
+
+  new Chart(document.getElementById('equityChart'), {
+    type:'line',
+    data:{ labels: eqData.map((_,i)=>i),
+      datasets:[{ data:eqData, borderColor:'#F14BB2', backgroundColor:'rgba(241,75,178,0.1)',
+        fill:true, tension:0.35, pointRadius:0, borderWidth:2 }]},
+    options:{ responsive:true, plugins:{legend:{display:false}},
+      scales:{ x:{display:false}, y:{grid:{color:'rgba(233,75,178,0.08)'}, ticks:{font:{size:10}}} } }
+  });
+
+  new Chart(document.getElementById('donutChart'), {
+    type:'doughnut',
+    data:{ labels:['Wins','Losses'], datasets:[{ data:[71.4,28.6],
+      backgroundColor:['#F14BB2','#7C3AED'], borderWidth:0 }]},
+    options:{ responsive:true, cutout:'68%', plugins:{legend:{position:'bottom', labels:{boxWidth:10,padding:16,font:{size:11}}}} }
+  });
+</script>
+
+</body>
+</html>
