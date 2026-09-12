@@ -1,0 +1,174 @@
+// JARVIS Web — Express backend.
+// Keeps the OpenAI key server-side, proxies weather, exposes a small API the
+// browser front-end calls. Everything degrades gracefully with no keys.
+
+import express from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const CONFIG = {
+  port: Number(process.env.PORT) || 3000,
+  openaiKey: (process.env.OPENAI_API_KEY || "").trim(),
+  openaiModel: (process.env.OPENAI_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini",
+  assistantName: (process.env.ASSISTANT_NAME || "Jarvis").trim() || "Jarvis",
+  userName: (process.env.USER_NAME || "Sir").trim() || "Sir",
+  weatherKey: (process.env.OPENWEATHER_API_KEY || "").trim(),
+  defaultCity: (process.env.DEFAULT_CITY || "Windhoek").trim() || "Windhoek",
+  weatherUnits: (process.env.WEATHER_UNITS || "metric").trim() || "metric",
+};
+
+const app = express();
+app.use(express.json({ limit: "1mb" }));
+app.use(express.static(path.join(__dirname, "public")));
+
+// --- Simple in-memory conversation store (per-session id from the client) ---
+const sessions = new Map();
+function getHistory(id) {
+  if (!sessions.has(id)) sessions.set(id, []);
+  return sessions.get(id);
+}
+
+const SYSTEM_PROMPT = () =>
+  `You are ${CONFIG.assistantName}, a witty, concise voice assistant inspired by ` +
+  `Iron Man's J.A.R.V.I.S. You address the user as '${CONFIG.userName}'. Keep ` +
+  `answers short and conversational (1-3 sentences) since they are spoken aloud. ` +
+  `Be helpful, clever, and to the point. Avoid markdown, lists, or code blocks ` +
+  `unless explicitly asked.`;
+
+// ---------------------------------------------------------------- config info
+app.get("/api/config", (_req, res) => {
+  res.json({
+    assistantName: CONFIG.assistantName,
+    userName: CONFIG.userName,
+    aiOnline: Boolean(CONFIG.openaiKey),
+    weatherOnline: Boolean(CONFIG.weatherKey),
+    defaultCity: CONFIG.defaultCity,
+  });
+});
+
+// ---------------------------------------------------------------- weather
+app.get("/api/weather", async (req, res) => {
+  const city = (req.query.city || CONFIG.defaultCity).toString();
+  if (!CONFIG.weatherKey) {
+    return res.json({
+      ok: false,
+      message:
+        "Weather isn't configured. Add an OpenWeather API key to the server .env.",
+    });
+  }
+  try {
+    const url = new URL("https://api.openweathermap.org/data/2.5/weather");
+    url.searchParams.set("q", city);
+    url.searchParams.set("appid", CONFIG.weatherKey);
+    url.searchParams.set("units", CONFIG.weatherUnits);
+    const r = await fetch(url);
+    const data = await r.json();
+    if (r.status !== 200) {
+      return res.json({
+        ok: false,
+        message: `I couldn't get weather for ${city}: ${data.message || "unknown error"}.`,
+      });
+    }
+    const unit = CONFIG.weatherUnits === "metric" ? "°C" : "°F";
+    const text =
+      `It's ${Math.round(data.main.temp)}${unit} in ${data.name} with ` +
+      `${data.weather[0].description}, feels like ${Math.round(data.main.feels_like)}${unit}.`;
+    res.json({ ok: true, text });
+  } catch (err) {
+    res.json({ ok: false, message: `Weather lookup failed: ${err.message}` });
+  }
+});
+
+// ---------------------------------------------------------------- wikipedia
+app.get("/api/wiki", async (req, res) => {
+  const q = (req.query.q || "").toString().trim();
+  if (!q) return res.json({ ok: false });
+  try {
+    const r = await fetch(
+      "https://en.wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(q),
+      { headers: { "User-Agent": "JarvisWeb/1.0" } }
+    );
+    if (r.status === 200) {
+      const data = await r.json();
+      if (data.extract) return res.json({ ok: true, text: data.extract });
+    }
+    res.json({ ok: false });
+  } catch {
+    res.json({ ok: false });
+  }
+});
+
+// ---------------------------------------------------------------- AI chat
+app.post("/api/chat", async (req, res) => {
+  const { message, sessionId } = req.body || {};
+  if (!message || typeof message !== "string") {
+    return res.status(400).json({ ok: false, message: "No message provided." });
+  }
+  if (!CONFIG.openaiKey) {
+    return res.json({
+      ok: false,
+      offline: true,
+      message:
+        "My AI service isn't configured, so I can only handle built-in commands. " +
+        "Add an OpenAI API key to the server .env for open conversation.",
+    });
+  }
+
+  const id = (sessionId || "default").toString();
+  const history = getHistory(id);
+  history.push({ role: "user", content: message });
+  while (history.length > 20) history.shift();
+
+  try {
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${CONFIG.openaiKey}`,
+      },
+      body: JSON.stringify({
+        model: CONFIG.openaiModel,
+        temperature: 0.7,
+        max_tokens: 300,
+        messages: [{ role: "system", content: SYSTEM_PROMPT() }, ...history],
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      return res.json({
+        ok: false,
+        message: `My AI service had a problem: ${data.error?.message || r.statusText}`,
+      });
+    }
+    const answer = (data.choices?.[0]?.message?.content || "").trim();
+    history.push({ role: "assistant", content: answer });
+    res.json({ ok: true, text: answer || "I'm not sure how to answer that." });
+  } catch (err) {
+    res.json({ ok: false, message: `AI request failed: ${err.message}` });
+  }
+});
+
+// Reset a conversation.
+app.post("/api/reset", (req, res) => {
+  const id = (req.body?.sessionId || "default").toString();
+  sessions.delete(id);
+  res.json({ ok: true });
+});
+
+// SPA fallback.
+app.get("*", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+app.listen(CONFIG.port, "0.0.0.0", () => {
+  console.log(`\n  ◆ JARVIS Web running on http://0.0.0.0:${CONFIG.port}`);
+  console.log(
+    `  AI: ${CONFIG.openaiKey ? "online" : "offline (built-in commands only)"} · ` +
+      `Weather: ${CONFIG.weatherKey ? "online" : "off"}\n`
+  );
+});
