@@ -381,6 +381,89 @@ function stripHtml(html) {
     .trim();
 }
 
+// -------- In-app module viewer: fetch the readable content of a single module
+// (a Page's HTML, a URL's link, or a label/description) so Jarvis can render it
+// inside the app instead of bouncing the student to Moodle. Uses the student's
+// own token; only their enrolled content is reachable.
+export async function getModuleContent(sessionId, courseId, cmid, modname) {
+  const s = requireSession(sessionId);
+  const cid = Number(courseId);
+  const cm = Number(cmid);
+
+  if (modname === "page") {
+    const data = await callFunction(s.base, s.token, "mod_page_get_pages_by_courses", {
+      courseids: [cid],
+    }).catch(() => null);
+    const p = (data?.pages || []).find((x) => Number(x.coursemodule) === cm);
+    if (p) {
+      return {
+        type: "page",
+        name: p.name,
+        html: rewriteFileUrls(s.base, p.content || p.intro || "", p.contentfiles || p.introfiles),
+      };
+    }
+  }
+
+  if (modname === "url") {
+    const data = await callFunction(s.base, s.token, "mod_url_get_urls_by_courses", {
+      courseids: [cid],
+    }).catch(() => null);
+    const u = (data?.urls || []).find((x) => Number(x.coursemodule) === cm);
+    if (u) {
+      return {
+        type: "url",
+        name: u.name,
+        externalurl: u.externalurl,
+        html: rewriteFileUrls(s.base, u.intro || "", u.introfiles),
+      };
+    }
+  }
+
+  // Fallback: pull the module's own description from the course contents.
+  const sections = await callFunction(s.base, s.token, "core_course_get_contents", {
+    courseid: cid,
+  }).catch(() => null);
+  for (const sec of sections || []) {
+    for (const m of sec.modules || []) {
+      if (Number(m.id) === cm) {
+        return {
+          type: m.modname,
+          name: m.name,
+          url: m.url || null,
+          html: rewriteFileUrls(s.base, m.description || "", m.contentsinfo?.files),
+        };
+      }
+    }
+  }
+  return { type: modname, html: "" };
+}
+
+// Rewrite Moodle file references inside HTML so images/links load through our
+// token-adding download proxy (keeps the token server-side). Handles both the
+// @@PLUGINFILE@@ placeholder and absolute pluginfile.php URLs on the same host.
+function rewriteFileUrls(base, html, files) {
+  if (!html) return "";
+  let out = String(html);
+  const host = (() => { try { return new URL(base).host; } catch { return ""; } })();
+
+  // Resolve @@PLUGINFILE@@ placeholders using the module's file list when present.
+  if (out.includes("@@PLUGINFILE@@") && Array.isArray(files) && files.length) {
+    out = out.replace(/@@PLUGINFILE@@\/([^"'\s)]+)/g, (_m, tail) => {
+      const name = decodeURIComponent(tail.split("?")[0]);
+      const f = files.find((x) => (x.filename || "") === name || (x.fileurl || "").endsWith("/" + tail));
+      if (f && f.fileurl) return "/api/lms/download?url=" + encodeURIComponent(f.fileurl);
+      return _m;
+    });
+  }
+
+  // Rewrite absolute pluginfile.php URLs on the same Moodle host.
+  if (host) {
+    const re = new RegExp("https?://" + host.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&") + "/[^\"'\\s)]*pluginfile\\.php/[^\"'\\s)]+", "g");
+    out = out.replace(re, (u) => "/api/lms/download?url=" + encodeURIComponent(u));
+  }
+  return out;
+}
+
 // Stream a Moodle file through our backend so the token stays server-side.
 export async function proxyFile(sessionId, fileUrl, res) {
   const s = requireSession(sessionId);

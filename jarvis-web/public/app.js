@@ -358,6 +358,30 @@
 
     if (wantsLogin) { lms.focusPortal(); return "Opening the student portal for you."; }
 
+    // ---- Browse the LMS by voice: "open my <course> course",
+    // "show me <item> in <course>", "go to <course>" ----
+    const navItem = text.match(/\b(?:open|show|view|read|go to|take me to|pull up|bring up)\s+(?:me\s+)?(?:the\s+)?(.+?)\s+(?:in|from|of|under)\s+(?:my\s+|the\s+)?(.+?)(?:\s+(?:course|module|class|subject))?\s*[?.!]*$/i);
+    const navCourse = text.match(/\b(?:open|go to|take me to|show|view|browse|navigate to)\s+(?:me\s+)?(?:my\s+|the\s+)?(.+?)\s+(?:course|module|class|subject)\b/i);
+    if ((navItem || navCourse) && !/\b(portal|website|site|browser|tab|youtube|google|spotify|resources?\s+tab)\b/.test(t)) {
+      if (!lms.isLoggedIn()) { lms.focusPortal(); return "Sign in to the portal first — I've opened it for you."; }
+      const clean = (s) => (s || "").replace(/\b(please|for me|now|the|my)\b/gi, "").replace(/[?.!]+$/, "").trim();
+      if (navItem) {
+        const itemTerm = clean(navItem[1]);
+        const courseTerm = clean(navItem[2]);
+        // Avoid hijacking file-open phrasing (handled below).
+        if (!new RegExp(`\\b${fileNoun}\\b`, "i").test(itemTerm) || /\b(page|topic|section|week|unit|forum|quiz|assignment|announcement)\b/i.test(itemTerm)) {
+          const r = await lms.navigateModule(courseTerm, itemTerm);
+          if (r.ok) return `Opened “${r.module.name}” in ${r.course.shortname || r.course.fullname}.`;
+          if (r.message) return r.message;
+        }
+      }
+      if (navCourse) {
+        const r = await lms.navigateCourse(clean(navCourse[1]));
+        if (r.ok) return `Here's ${r.course.fullname}. Tap any item to open it, or tell me which one you want.`;
+        if (r.message) return r.message;
+      }
+    }
+
     // ---- Open/download a specific file by voice ----
     if (openFileMatch && looksLikeFile && !/\b(portal|website|site|browser|tab|youtube|google|spotify)\b/.test(t)) {
       if (!lms.isLoggedIn()) { lms.focusPortal(); return "Sign in on the Portal tab first — I've opened it for you."; }
@@ -890,6 +914,12 @@
     const siteEl = document.getElementById("lmsSite");
     const avatar = document.getElementById("lmsAvatar");
     const logoutBtn = document.getElementById("lmsLogout");
+    const viewer = document.getElementById("modViewer");
+    const mvBack = document.getElementById("mvBack");
+    const mvName = document.getElementById("mvName");
+    const mvMeta = document.getElementById("mvMeta");
+    const mvBody = document.getElementById("mvBody");
+    const mvExternal = document.getElementById("mvExternal");
     const subtabs = document.querySelectorAll(".lms-subtab");
     const panels = {
       courses: document.getElementById("panel-courses"),
@@ -918,6 +948,8 @@
       sessionId = ""; localStorage.removeItem(SKEY);
       loadedOnce = false; loaded.courses = loaded.grades = loaded.assignments = loaded.calendar = false;
       dash.hidden = true; loginBox.hidden = false;
+      if (viewer) viewer.hidden = true;
+      currentCourse = null; currentSections = [];
       try { resources.invalidate(); } catch (_) {}
       if (text) { msg.textContent = text; msg.classList.remove("ok"); }
     }
@@ -964,6 +996,7 @@
     });
 
     subtabs.forEach((t) => t.addEventListener("click", () => {
+      if (viewer) viewer.hidden = true;
       subtabs.forEach((x) => x.classList.toggle("active", x === t));
       Object.entries(panels).forEach(([k, p]) => p.classList.toggle("active", k === t.dataset.panel));
       loadPanel(t.dataset.panel);
@@ -1012,14 +1045,20 @@
       });
     }
 
+    // Cache of the last-opened course so voice navigation can reuse it.
+    let currentCourse = null;
+    let currentSections = [];
+
     async function openCourse(panel, course) {
       panel.innerHTML = '<div class="lms-loading">Loading course…</div>';
       const data = await api(`/api/lms/courses/${course.id}/contents`);
       if (!data.ok) { panel.innerHTML = `<div class="lms-empty">${esc(data.message)}</div>`; return; }
+      currentCourse = course;
+      currentSections = data.sections || [];
       panel.innerHTML = "";
       const back = document.createElement("button");
       back.className = "lms-back"; back.textContent = "‹ Back to courses";
-      back.addEventListener("click", () => { loaded.courses = false; loadPanel("courses"); });
+      back.addEventListener("click", () => { currentCourse = null; loaded.courses = false; loadPanel("courses"); });
       panel.appendChild(back);
       const title = document.createElement("div");
       title.className = "lms-card";
@@ -1033,28 +1072,121 @@
         s.innerHTML = `<div class="sname">${esc(sec.name || "Section")}</div>`;
         sec.modules.forEach((m) => {
           const row = document.createElement("div");
-          row.className = "lms-mod";
-          const icon = m.modicon ? `<img class="micon" src="${esc(m.modicon)}" alt="">` : `<span class="micon">📄</span>`;
-          row.innerHTML = `${icon}<span class="mname">${esc(m.name)}</span>`;
           const file = (m.contents || []).find((f) => f.type === "file" && f.fileurl);
-          if (file) {
-            const a = document.createElement("a");
-            a.className = "dl"; a.textContent = "Download";
-            a.href = `/api/lms/download?url=${encodeURIComponent(file.fileurl)}`;
-            a.setAttribute("download", file.filename || "");
-            // send session header via fetch-download to keep token server-side
-            a.addEventListener("click", (ev) => { ev.preventDefault(); downloadFile(file); });
-            row.appendChild(a);
-          } else if (m.url) {
-            const a = document.createElement("a");
-            a.className = "dl"; a.textContent = "Open"; a.href = m.url; a.target = "_blank"; a.rel = "noopener";
-            row.appendChild(a);
-          }
+          const icon = m.modicon ? `<img class="micon" src="${esc(m.modicon)}" alt="">` : `<span class="micon">📄</span>`;
+          row.className = "lms-mod click";
+          row.innerHTML = `${icon}<span class="mname">${esc(m.name)}</span><span class="mopen">${file ? "open ›" : "view ›"}</span>`;
+          // Whole row opens the item inside the app.
+          row.addEventListener("click", () => openModule(course, sec, m));
           s.appendChild(row);
         });
         panel.appendChild(s);
       });
     }
+
+    // Open a single module inside the in-app viewer.
+    async function openModule(course, section, m) {
+      switchView("portal");
+      viewer.hidden = false;
+      mvName.textContent = m.name || "Item";
+      mvMeta.textContent = `${course.shortname || course.fullname || ""}${section && section.name ? " · " + section.name : ""}`;
+      mvExternal.hidden = true;
+      mvBody.innerHTML = '<div class="lms-loading">Loading…</div>';
+
+      const files = (m.contents || []).filter((f) => f.type === "file" && f.fileurl);
+
+      // A resource module = one or more downloadable files: show file cards.
+      if (files.length && (m.modname === "resource" || m.modname === "folder" || !m.url)) {
+        mvBody.innerHTML = "";
+        if (m.description) {
+          const d = document.createElement("div");
+          d.innerHTML = m.description;
+          mvBody.appendChild(d);
+        }
+        files.forEach((f) => mvBody.appendChild(fileCard(f)));
+        // Auto-preview a single PDF/image inline.
+        if (files.length === 1 && /pdf|image\//.test(files[0].mimetype || "")) previewInline(files[0]);
+        return;
+      }
+
+      // Otherwise fetch the readable content (page HTML, url link, description).
+      try {
+        const r = await api(`/api/lms/courses/${course.id}/modules/${m.id}?modname=${encodeURIComponent(m.modname || "")}`);
+        const c = (r && r.ok && r.content) || {};
+        mvBody.innerHTML = "";
+        if (c.type === "url" && c.externalurl) {
+          const a = document.createElement("a");
+          a.className = "mv-linkcard"; a.href = c.externalurl; a.target = "_blank"; a.rel = "noopener";
+          a.innerHTML = "🔗 Open link ↗";
+          mvExternal.href = c.externalurl; mvExternal.hidden = false;
+          if (c.html) { const d = document.createElement("div"); d.innerHTML = c.html; mvBody.appendChild(d); }
+          mvBody.appendChild(a);
+          return;
+        }
+        if (c.html && c.html.trim()) {
+          const d = document.createElement("div");
+          d.innerHTML = c.html;
+          mvBody.appendChild(d);
+          if (files.length) files.forEach((f) => mvBody.appendChild(fileCard(f)));
+          return;
+        }
+        // Nothing readable: fall back to files or the Moodle link.
+        if (files.length) { files.forEach((f) => mvBody.appendChild(fileCard(f))); return; }
+        if (m.url || c.url) {
+          const url = m.url || c.url;
+          mvExternal.href = url; mvExternal.hidden = false;
+          mvBody.innerHTML = `<p class="lms-empty">This ${esc(m.modname || "item")} opens on Moodle.</p>`;
+          const a = document.createElement("a");
+          a.className = "mv-linkcard"; a.href = url; a.target = "_blank"; a.rel = "noopener";
+          a.textContent = "Open on Moodle ↗";
+          mvBody.appendChild(a);
+          return;
+        }
+        mvBody.innerHTML = '<p class="lms-empty">Nothing to preview for this item.</p>';
+      } catch (err) {
+        mvBody.innerHTML = `<p class="lms-empty">${esc(err.message)}</p>`;
+      }
+    }
+
+    function fileCard(f) {
+      const wrap = document.createElement("div");
+      wrap.className = "mv-file";
+      const kb = f.filesize ? (f.filesize > 1048576 ? (f.filesize / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(f.filesize / 1024)) + " KB") : "";
+      const ico = /pdf/.test(f.mimetype || "") ? "📕" : /image\//.test(f.mimetype || "") ? "🖼️" : /word|document/.test(f.mimetype || "") ? "📘" : /sheet|excel/.test(f.mimetype || "") ? "📊" : /presentation|powerpoint/.test(f.mimetype || "") ? "📙" : "📄";
+      wrap.innerHTML = `<span class="fico">${ico}</span><div class="fmeta"><strong>${esc(f.filename)}</strong><span>${esc([kb, f.mimetype].filter(Boolean).join(" · "))}</span></div>`;
+      const dl = document.createElement("button");
+      dl.className = "dl"; dl.textContent = "Download";
+      dl.addEventListener("click", () => downloadFile(f));
+      wrap.appendChild(dl);
+      if (/pdf|image\//.test(f.mimetype || "")) {
+        const pv = document.createElement("button");
+        pv.className = "dl"; pv.style.marginLeft = "8px"; pv.textContent = "Preview";
+        pv.addEventListener("click", () => previewInline(f));
+        wrap.appendChild(pv);
+      }
+      return wrap;
+    }
+
+    // Inline preview of a PDF/image, streamed through our token proxy.
+    async function previewInline(f) {
+      try {
+        const r = await fetch(`/api/lms/download?url=${encodeURIComponent(f.fileurl)}`, { headers: { "x-lms-session": sessionId } });
+        if (!r.ok) return;
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const box = document.createElement("div");
+        if (/image\//.test(f.mimetype || "")) {
+          box.innerHTML = `<img src="${url}" alt="${esc(f.filename)}">`;
+        } else {
+          box.innerHTML = `<iframe src="${url}" style="width:100%;height:72vh" title="${esc(f.filename)}"></iframe>`;
+        }
+        mvBody.appendChild(box);
+        box.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (_) {}
+    }
+
+    function closeViewer() { viewer.hidden = true; mvBody.innerHTML = ""; }
+    if (mvBack) mvBack.addEventListener("click", closeViewer);
 
     async function downloadFile(file) {
       try {
@@ -1180,7 +1312,71 @@
     function focusPortal() { switchView("portal"); }
     function focusResources() { switchView("resources"); }
 
-    return { onOpen, isLoggedIn, qCourses, qAssignments, qCalendar, qGrades, qResources, qAnnouncements, focusPortal, focusResources };
+    // Score how well a course matches a search term (name/shortname words).
+    function scoreCourse(course, term) {
+      const q = term.toLowerCase().trim();
+      if (!q) return 0;
+      const hay = `${course.fullname || ""} ${course.shortname || ""}`.toLowerCase();
+      if (hay.includes(q)) return 100;
+      const words = q.split(/\s+/).filter(Boolean);
+      return words.reduce((n, w) => n + (hay.includes(w) ? 1 : 0), 0);
+    }
+
+    // Voice/chat: open a course in the in-app browser by (fuzzy) name.
+    async function navigateCourse(term) {
+      if (!isLoggedIn()) { focusPortal(); return { ok: false, message: "Sign in to the portal first — I've opened it for you." }; }
+      const cs = await qCourses();
+      if (!cs.ok) return { ok: false, message: cs.message || "I couldn't reach the portal." };
+      const list = cs.courses || [];
+      if (!list.length) return { ok: false, message: "You're not enrolled in any courses." };
+      let course = list[0];
+      if (term) {
+        const ranked = list.map((c) => ({ c, s: scoreCourse(c, term) })).sort((a, b) => b.s - a.s);
+        if (!ranked[0].s) { focusPortal(); return { ok: false, message: `I couldn't find a course matching “${term}”. Your courses are open on the Portal tab.` }; }
+        course = ranked[0].c;
+      } else if (list.length > 1) {
+        focusPortal();
+        return { ok: false, message: `You have ${list.length} courses. Which one? Say, for example, “open my ${(list[0].shortname || list[0].fullname)} course”.` };
+      }
+      switchView("portal");
+      setSubtab("courses");
+      // Render the course directly; keep loaded=false so the Courses subtab
+      // still reloads the full list when clicked again.
+      loaded.courses = false;
+      await openCourse(panels.courses, course);
+      return { ok: true, course };
+    }
+
+    // Voice/chat: after a course is open (or given a term), open a module by name.
+    async function navigateModule(courseTerm, itemTerm) {
+      const nav = await navigateCourse(courseTerm);
+      if (!nav.ok && !currentCourse) return nav;
+      const course = nav.course || currentCourse;
+      const q = (itemTerm || "").toLowerCase().trim();
+      let best = null, bestScore = 0, bestSec = null;
+      (currentSections || []).forEach((sec) => {
+        (sec.modules || []).forEach((m) => {
+          const name = (m.name || "").toLowerCase();
+          let s = 0;
+          if (q && name.includes(q)) s = 100;
+          else if (q) s = q.split(/\s+/).filter(Boolean).reduce((n, w) => n + (name.includes(w) ? 1 : 0), 0);
+          if (s > bestScore) { bestScore = s; best = m; bestSec = sec; }
+        });
+      });
+      if (!best || !bestScore) return { ok: false, message: `I opened ${course.shortname || course.fullname} but couldn't find an item matching “${itemTerm}”.` };
+      await openModule(course, bestSec, best);
+      return { ok: true, course, module: best };
+    }
+
+    function setSubtab(name) {
+      subtabs.forEach((x) => x.classList.toggle("active", x.dataset.panel === name));
+      Object.entries(panels).forEach(([k, p]) => p.classList.toggle("active", k === name));
+    }
+
+    return {
+      onOpen, isLoggedIn, qCourses, qAssignments, qCalendar, qGrades, qResources, qAnnouncements,
+      focusPortal, focusResources, navigateCourse, navigateModule, openModule,
+    };
   })();
 
   // ------------------------------------------------------------ shared helpers

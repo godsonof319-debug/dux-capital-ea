@@ -99,6 +99,9 @@ Keys live **only on the server** — the browser never sees them; it calls
 - "Play lofi beats" · "Play Bohemian Rhapsody on spotify"
 - "Open github" · "Search for pasta recipes"
 - "Flip a coin" · "Roll a d20" · "Tell me a joke"
+- **Browse the LMS by voice** (after signing in): "Open my Marketing course",
+  "Show me the week 3 page in Accounting", "Open my lecture notes",
+  "What's new in my courses?", "Any new announcements?"
 - Anything else → answered by the AI brain (needs a key).
 
 ---
@@ -160,12 +163,31 @@ nothing is bypassed. Point the app at any Moodle site with `LMS_URL` in `.env`
 | `GET /api/lms/me` | Current student profile. |
 | `GET /api/lms/courses` | Enrolled courses. |
 | `GET /api/lms/courses/:id/contents` | Sections, modules, and files. |
+| `GET /api/lms/courses/:id/modules/:cmid?modname=…` | One module's readable content (Page HTML, URL link, description) for the in-app viewer. |
 | `GET /api/lms/courses/:id/grades` | Grades for a course. |
 | `GET /api/lms/assignments` | Assignments across courses (soonest due first). |
 | `GET /api/lms/calendar` | Upcoming events. |
 | `GET /api/lms/download?url=…` | Proxies a course file (token stays server-side). |
 | `GET /api/lms/resources` | Every downloadable file across the student's courses. |
 | `GET /api/lms/announcements` | Posts from each course's announcements forum. |
+
+## 🧭 Browsing the LMS inside JARVIS
+
+Once you sign in on the **Portal** tab, JARVIS opens a real, per-student Moodle
+session (your own token, held server-side) and you can browse everything you're
+enrolled in **without leaving the app**:
+
+- **Courses → sections → items.** Tap any course, then tap any item. Pages,
+  labels and link resources render *inside* the app; PDFs and images preview
+  inline; files download through the token-proxy. Nothing is bounced to a raw
+  Moodle page unless the item type genuinely lives there (e.g. a quiz).
+- **Voice / chat navigation.** "Open my *Marketing* course", "show me the
+  *week 5 page* in *Accounting*", "open my *lecture notes*" all drive that same
+  in-app browser. The assistant fuzzy-matches your enrolled courses and their
+  module names — so it only ever reaches *your own* content.
+
+Everything uses Moodle's official Web Services API with the student's own
+credentials; there are no shared tokens and no scraping.
 
 ## 📂 Resources — a bridge to Moodle (no uploads)
 

@@ -176,6 +176,19 @@
         <div class="lms-panel" id="panel-calendar"><div class="lms-loading">Loading…</div></div>
       </div>
     </div>
+
+    <!-- In-app content viewer: opens a course item (page, link, file) here -->
+    <div class="mv" id="modViewer" hidden>
+      <div class="mv-head">
+        <button class="wv-btn" id="mvBack" title="Back" aria-label="Back">‹</button>
+        <div class="mv-title">
+          <strong id="mvName">Item</strong>
+          <span class="mv-meta" id="mvMeta"></span>
+        </div>
+        <a class="wv-btn ghost" id="mvExternal" title="Open in a new tab" target="_blank" rel="noopener" hidden>↗</a>
+      </div>
+      <div class="mv-body" id="mvBody"><div class="lms-loading">Loading…</div></div>
+    </div>
   </div><!-- /view-portal -->
 
   <!-- ============ RESOURCES VIEW (bridge to your Moodle courses) ============ -->

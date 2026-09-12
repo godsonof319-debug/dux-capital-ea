@@ -254,6 +254,21 @@ app.get("/api/lms/calendar", async (req, res) => {
   }
 });
 
+// Read one module's content (Page HTML, URL link, description) for in-app view.
+app.get("/api/lms/courses/:id/modules/:cmid", async (req, res) => {
+  try {
+    const content = await lms.getModuleContent(
+      lmsSession(req),
+      req.params.id,
+      req.params.cmid,
+      (req.query.modname || "").toString()
+    );
+    res.json({ ok: true, content });
+  } catch (err) {
+    lmsError(res, err);
+  }
+});
+
 // Stream a course file through the backend (keeps the token server-side).
 app.get("/api/lms/download", async (req, res) => {
   const fileUrl = (req.query.url || "").toString();
