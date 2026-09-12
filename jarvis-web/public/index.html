@@ -98,6 +98,7 @@
 
       <!-- Bookmarks / quick links -->
       <div class="wv-bookmarks" id="wvBookmarks">
+        <button class="wv-bm wv-sso" id="wvSso" hidden>🔓 Open signed in ↗</button>
         <button class="wv-bm" data-url="https://elearn.ium.edu.na/">🎓 IUM Portal</button>
         <button class="wv-bm" data-url="https://ium.edu.na/">🌐 Official IUM Website</button>
         <button class="wv-bm" data-url="https://elearn.ium.edu.na/login/index.php">🔑 Portal Login</button>
@@ -117,7 +118,8 @@
           <span class="wv-fallback-icon">🚫🖼️</span>
           <p><strong id="wvFallbackHost">This site</strong> doesn't allow being displayed inside
              another app for security reasons.</p>
-          <a class="send-btn" id="wvFallbackOpen" href="https://elearn.ium.edu.na/" target="_blank" rel="noopener">Open it in a new tab ↗</a>
+          <button class="send-btn" id="wvFallbackSso" hidden>🔓 Open it signed in ↗</button>
+          <a class="send-btn ghost-btn" id="wvFallbackOpen" href="https://elearn.ium.edu.na/" target="_blank" rel="noopener">Open it in a new tab ↗</a>
         </div>
       </div>
     </div>

@@ -356,6 +356,17 @@
     const looksLikeFile = new RegExp(`\\b${fileNoun}\\b`, "i").test(t);
     const wantsLogin = /\b(log ?in|sign ?in|open (the )?(portal|lms))\b/.test(t) && mentionsLms || /\bopen (the )?portal\b/.test(t);
 
+    // "Open the IUM website / Moodle signed in", "log me into the real site"
+    const wantsSso = /\b(sign(ed)? ?in|log(ged)? ?in|logged)\b/.test(t) &&
+      /\b(website|site|elearn|e-?learn|moodle|browser|ium|real (site|portal))\b/.test(t) &&
+      /\b(open|take me|go to|launch|bring up)\b/.test(t);
+    if (wantsSso) {
+      if (!lms.isLoggedIn()) { lms.focusPortal(); return "Sign in to the portal first — I've opened it for you."; }
+      switchView("ium");
+      try { wv.openSignedIn(); } catch (_) {}
+      return "Opening the IUM site in a new tab, already signed in with your session.";
+    }
+
     if (wantsLogin) { lms.focusPortal(); return "Opening the student portal for you."; }
 
     // ---- Browse the LMS by voice: "open my <course> course",
@@ -819,8 +830,29 @@
     const fallback = document.getElementById("iumFallback");
     const fbHost = document.getElementById("wvFallbackHost");
     const fbOpen = document.getElementById("wvFallbackOpen");
-    const bookmarks = Array.from(document.querySelectorAll(".wv-bm"));
+    const bookmarks = Array.from(document.querySelectorAll(".wv-bm")).filter((b) => b.dataset.url);
+    const ssoBtn = document.getElementById("wvSso");
+    const fbSso = document.getElementById("wvFallbackSso");
     const HOME = "https://elearn.ium.edu.na/";
+    const LMS_HOST = "elearn.ium.edu.na";
+
+    // Single sign-on: open the real Moodle site already logged in (new tab).
+    // Uses the server SSO redirect, which mints a short-lived autologin key for
+    // the student's own session. Only works while signed in on the Portal tab.
+    function ssoLink(toUrl) {
+      const s = localStorage.getItem("jarvis_lms_session") || "";
+      const to = toUrl && /^https?:\/\//i.test(toUrl) ? toUrl : "";
+      return `/api/lms/sso?s=${encodeURIComponent(s)}${to ? "&to=" + encodeURIComponent(to) : ""}`;
+    }
+    function hasSession() { return Boolean(localStorage.getItem("jarvis_lms_session")); }
+    function openSignedIn(toUrl) {
+      if (!hasSession()) { switchView("portal"); return; }
+      window.open(ssoLink(toUrl), "_blank", "noopener");
+    }
+    function refreshSso() {
+      const on = hasSession();
+      if (ssoBtn) ssoBtn.hidden = !on;
+    }
 
     // Our own history stack (cross-origin iframes hide their internal history).
     const hist = [];
@@ -875,6 +907,12 @@
         if (fallback) {
           if (fbHost) fbHost.textContent = hostOf(target);
           if (fbOpen) fbOpen.href = target;
+          // Offer signed-in open when it's the Moodle host and we have a session.
+          const canSso = hostOf(target).includes(LMS_HOST) && hasSession();
+          if (fbSso) {
+            fbSso.hidden = !canSso;
+            fbSso.onclick = () => openSignedIn(target);
+          }
           fallback.hidden = false;
         }
       }, 7000);
@@ -893,11 +931,13 @@
     btnBack.addEventListener("click", () => { if (idx > 0) { idx--; load(hist[idx], { push: false }); } });
     btnFwd.addEventListener("click", () => { if (idx < hist.length - 1) { idx++; load(hist[idx], { push: false }); } });
     bookmarks.forEach((b) => b.addEventListener("click", () => load(b.dataset.url)));
+    if (ssoBtn) ssoBtn.addEventListener("click", () => openSignedIn(hist[idx] || HOME));
 
     // Seed history with the initial iframe src.
     hist.push(HOME); idx = 0; syncButtons(); showLoading(true);
+    refreshSso();
 
-    return { load, HOME };
+    return { load, HOME, refreshSso, openSignedIn };
   })();
 
   // ------------------------------------------------------------ LMS portal
@@ -951,6 +991,7 @@
       if (viewer) viewer.hidden = true;
       currentCourse = null; currentSections = [];
       try { resources.invalidate(); } catch (_) {}
+      try { wv && wv.refreshSso(); } catch (_) {}
       if (text) { msg.textContent = text; msg.classList.remove("ok"); }
     }
     function showDash(user) {
@@ -980,6 +1021,7 @@
         passIn.value = "";
         msg.textContent = ""; 
         try { resources.invalidate(); resources.refreshBadge(); } catch (_) {}
+        try { wv && wv.refreshSso(); } catch (_) {}
         showDash(data.user);
         loadPanel("courses");
       } catch (err) {

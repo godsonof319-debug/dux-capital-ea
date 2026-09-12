@@ -167,6 +167,7 @@ nothing is bypassed. Point the app at any Moodle site with `LMS_URL` in `.env`
 | `GET /api/lms/courses/:id/grades` | Grades for a course. |
 | `GET /api/lms/assignments` | Assignments across courses (soonest due first). |
 | `GET /api/lms/calendar` | Upcoming events. |
+| `GET /api/lms/sso?s=…&to=…` | Mints a Moodle autologin key for the student and 302-redirects the browser into the real site, already signed in. |
 | `GET /api/lms/download?url=…` | Proxies a course file (token stays server-side). |
 | `GET /api/lms/resources` | Every downloadable file across the student's courses. |
 | `GET /api/lms/announcements` | Posts from each course's announcements forum. |
@@ -188,6 +189,22 @@ enrolled in **without leaving the app**:
 
 Everything uses Moodle's official Web Services API with the student's own
 credentials; there are no shared tokens and no scraping.
+
+### Opening the *real* Moodle site already signed in
+
+The **🌐 Browser** tab embeds the live IUM site. Moodle (like most sites) sends
+`X-Frame-Options`/CSP headers that stop it rendering *inside* an iframe, so when
+that happens JARVIS shows a friendly fallback with two choices — and, if you're
+signed in on the Portal tab, a **"Open it signed in ↗"** button.
+
+That button (and "Open signed in" in the bookmarks bar, and the voice command
+*"open the IUM site signed in"*) uses Moodle's official
+`tool_mobile_get_autologin_key` — the exact SSO mechanism the Moodle Mobile app
+uses. The server mints a **short-lived, single-use** key for *your* session and
+302-redirects your browser to Moodle's `autologin.php`, which establishes a
+genuine browser session and lands you on the page. The Web Services token never
+leaves the server, and if the site has autologin disabled it fails cleanly with
+a normal login link. No password re-entry, no shared secrets, nothing bypassed.
 
 ## 📂 Resources — a bridge to Moodle (no uploads)
 

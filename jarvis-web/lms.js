@@ -464,6 +464,54 @@ function rewriteFileUrls(base, html, files) {
   return out;
 }
 
+// -------- Single sign-on into the real Moodle site (browser session).
+//
+// A Web Services token is NOT a browser cookie, so we can't just "inject" the
+// login into an iframe. Moodle's OFFICIAL mechanism for this is the same one the
+// Moodle Mobile app uses: tool_mobile_get_autologin_key mints a short-lived,
+// single-use key; navigating a browser to <autologinurl>?userid&key&urltogo
+// then establishes a genuine session and lands on the target page.
+//
+// This is legitimate SSO with the student's OWN session — no shared secrets, no
+// bypassing anything. It requires the site to have the Moodle mobile / autologin
+// feature enabled (on by default on most installs). If it's off, we fail cleanly
+// and the caller falls back to a normal (manual) login link.
+export async function getAutologinUrl(sessionId, urltogo) {
+  const s = requireSession(sessionId);
+  const uid = s.user?.id;
+  if (!uid) throw new Error("Missing user id; please log in again.");
+
+  let data;
+  try {
+    data = await callFunction(s.base, s.token, "tool_mobile_get_autologin_key");
+  } catch (err) {
+    // Common causes: autologin disabled, or called too often (6-min rate limit).
+    const e = new Error(
+      "This site doesn't allow single sign-on right now (it may be disabled, " +
+        "or you've requested it too recently). Use the login link instead."
+    );
+    e.cause = err;
+    throw e;
+  }
+  if (!data || !data.key || !data.autologinurl) {
+    throw new Error("The site didn't return a single sign-on key.");
+  }
+
+  const url = new URL(data.autologinurl);
+  url.searchParams.set("userid", String(uid));
+  url.searchParams.set("key", data.key);
+  // Only allow redirecting to a page on the same Moodle host we're logged into.
+  let target = normalizeBase(s.base) + "/my/";
+  if (urltogo) {
+    try {
+      const t = new URL(urltogo);
+      if (t.host === new URL(s.base).host) target = t.href;
+    } catch { /* ignore malformed urltogo, keep default */ }
+  }
+  url.searchParams.set("urltogo", target);
+  return { url: url.href, urltogo: target };
+}
+
 // Stream a Moodle file through our backend so the token stays server-side.
 export async function proxyFile(sessionId, fileUrl, res) {
   const s = requireSession(sessionId);

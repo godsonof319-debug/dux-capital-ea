@@ -254,6 +254,35 @@ app.get("/api/lms/calendar", async (req, res) => {
   }
 });
 
+// Single sign-on redirect: mints a Moodle autologin key for THIS student and
+// 302-redirects the browser straight into the real site, already logged in.
+// The session id comes as a query param because this is a top-level navigation
+// (a normal link/window.open, which can't set custom headers). The key is
+// short-lived and single-use; the WS token still never leaves the server.
+app.get("/api/lms/sso", async (req, res) => {
+  const sid = (req.query.s || "").toString();
+  const urltogo = (req.query.to || "").toString();
+  try {
+    const { url } = await lms.getAutologinUrl(sid, urltogo);
+    res.redirect(url);
+  } catch (err) {
+    const status = err.code === "NO_SESSION" ? 401 : 502;
+    res
+      .status(status)
+      .type("html")
+      .send(
+        `<!doctype html><meta charset="utf-8"><title>Sign-in</title>` +
+          `<body style="font-family:system-ui;background:#160812;color:#f6e9f1;` +
+          `display:grid;place-items:center;height:100vh;margin:0;text-align:center;padding:24px">` +
+          `<div><h2>Couldn't open the portal signed in</h2>` +
+          `<p style="opacity:.8;max-width:34rem">${(err.message || "Please try again.")
+            .replace(/[<>&]/g, "")}</p>` +
+          `<p><a style="color:#e94bb2" href="${CONFIG.lmsUrl}/login/index.php">Open the login page instead ↗</a></p>` +
+          `</div></body>`
+      );
+  }
+});
+
 // Read one module's content (Page HTML, URL link, description) for in-app view.
 app.get("/api/lms/courses/:id/modules/:cmid", async (req, res) => {
   try {

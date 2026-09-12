@@ -222,6 +222,10 @@ body{flex:1;}
 }
 .wv-bm:hover{color:var(--text);border-color:var(--pink);transform:translateY(-1px);}
 .wv-bm.active{color:#1a0a14;background:linear-gradient(135deg,var(--pink),var(--pink-2));border-color:transparent;}
+.wv-bm.wv-sso{color:#1a0a14;background:linear-gradient(135deg,#3fe0a5,#2fb5c9);border-color:transparent;font-weight:600;}
+.wv-bm.wv-sso:hover{filter:brightness(1.06);}
+.send-btn.ghost-btn{background:transparent;border:1px solid var(--line);color:var(--muted);box-shadow:none;}
+.send-btn.ghost-btn:hover{color:var(--text);border-color:var(--pink);}
 /* viewport */
 .wv-viewport{position:relative;flex:1;min-height:0;background:#fff;}
 .wv-frame{width:100%;height:100%;border:0;display:block;background:#fff;}
