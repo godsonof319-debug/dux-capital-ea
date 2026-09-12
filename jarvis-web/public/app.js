@@ -349,12 +349,35 @@
     const wantsEvents = /\b(upcoming|calendar|event|events|schedule|what('| i)?s? on)\b/.test(t);
     const wantsResources = /\b(resource|resources|material|materials|notes|slides?|lecture notes|readings?|files?|documents?|downloads?|handouts?)\b/.test(t);
     const wantsAnnounce = /\b(announcement|announcements|news|notice|notices|any (new|updates?))\b/.test(t);
-    const searchMatch = text.match(/\b(?:search|find|look for|any)\b\s+(?:my\s+)?(?:the\s+)?(?:lms|portal|course|module)?\s*(?:for\s+)?(.+?)\s*(?:resource|resources|material|materials|notes|files?|documents?|in (?:my )?(?:lms|portal|courses?))?\??$/i);
+    const wantsRecent = /\b(recent|recently|new|latest|updated|this week('|’)?s)\b/.test(t) && (wantsResources || /\b(what('| i)?s new|anything new)\b/.test(t));
+    // "open/download/get my week 3 slides", "open the lecture 2 notes"
+    const fileNoun = "(?:file|files|slides?|notes?|lecture|document|pdf|reading|handout|material|resource|recording|worksheet|assignment brief)";
+    const openFileMatch = text.match(new RegExp(`^\\s*(?:open|download|get|show|pull up|bring up|find)\\s+(?:me\\s+)?(?:my\\s+|the\\s+)?(.+?)(?:\\s+(?:for|from)\\s+.+)?\\s*$`, "i"));
+    const looksLikeFile = new RegExp(`\\b${fileNoun}\\b`, "i").test(t);
     const wantsLogin = /\b(log ?in|sign ?in|open (the )?(portal|lms))\b/.test(t) && mentionsLms || /\bopen (the )?portal\b/.test(t);
 
     if (wantsLogin) { lms.focusPortal(); return "Opening the student portal for you."; }
 
-    const isLmsQuery = wantsCourses || wantsAssign || wantsGrades || wantsEvents || wantsResources || wantsAnnounce || (mentionsLms && /\b(show|list|what|check|search|find)\b/.test(t));
+    // ---- Open/download a specific file by voice ----
+    if (openFileMatch && looksLikeFile && !/\b(portal|website|site|browser|tab|youtube|google|spotify)\b/.test(t)) {
+      if (!lms.isLoggedIn()) { lms.focusPortal(); return "Sign in on the Portal tab first — I've opened it for you."; }
+      let term = openFileMatch[1]
+        .replace(/\b(please|for me|now)\b/gi, "")
+        .replace(/[?.!]+$/, "")
+        .trim();
+      await resources.refreshBadge();
+      const hits = resources.findFiles(term);
+      if (!hits.length) {
+        resources.focusSearch(term);
+        return `I couldn't find a file matching “${term}”. I've opened the Resources tab so you can look.`;
+      }
+      resources.openFile(hits[0]);
+      const extra = hits.length > 1 ? ` (Top match of ${hits.length}. I've opened the Resources tab if you meant another.)` : "";
+      if (hits.length > 1) resources.focusSearch(term);
+      return `Opening “${hits[0].title || hits[0].filename}” from ${hits[0].course}.${extra}`;
+    }
+
+    const isLmsQuery = wantsCourses || wantsAssign || wantsGrades || wantsEvents || wantsResources || wantsAnnounce || wantsRecent || (mentionsLms && /\b(show|list|what|check|search|find)\b/.test(t));
     if (!isLmsQuery) return null;
 
     if (!lms.isLoggedIn()) {
@@ -363,6 +386,22 @@
     }
 
     try {
+      // Recently updated materials
+      if (wantsRecent) {
+        const r = await lms.qResources();
+        if (!r.ok) return r.message;
+        const now = Date.now();
+        const recent = [];
+        (r.courses || []).forEach((c) => (c.files || []).forEach((f) => {
+          if (f.timemodified && now - f.timemodified * 1000 <= 7 * 86400000) recent.push({ ...f, course: c.shortname || c.course });
+        }));
+        if (!recent.length) { resources.showRecent(); return "Nothing has been updated in your courses in the last 7 days."; }
+        recent.sort((a, b) => (b.timemodified || 0) - (a.timemodified || 0));
+        const top = recent.slice(0, 4).map((f) => `${f.title || f.filename} (${f.course})`).join("; ");
+        resources.showRecent();
+        return `${recent.length} recently updated item${recent.length === 1 ? "" : "s"}: ${top}. I've opened the Recent view.`;
+      }
+
       // Announcements ("any new announcements?")
       if (wantsAnnounce) {
         const a = await lms.qAnnouncements();
@@ -908,7 +947,7 @@
         localStorage.setItem(SKEY, sessionId);
         passIn.value = "";
         msg.textContent = ""; 
-        try { resources.invalidate(); } catch (_) {}
+        try { resources.invalidate(); resources.refreshBadge(); } catch (_) {}
         showDash(data.user);
         loadPanel("courses");
       } catch (err) {
@@ -1163,12 +1202,35 @@
     const filtersEl = document.getElementById("resFilters");
     const searchEl = document.getElementById("resSearch");
     const refreshBtn = document.getElementById("resRefresh");
+    const badgeEl = document.getElementById("resBadge");
+    const tabBtn = document.getElementById("tabResources");
     if (!modulesEl) return { onOpen() {}, invalidate() {}, cached: () => null };
 
+    const SEEN_KEY = "jarvis_res_lastseen";   // ms timestamp of last Resources visit
+    const ANN_SEEN_KEY = "jarvis_ann_lastseen"; // ms timestamp announcements last read
+    const RECENT_WINDOW = 7 * 86400000;        // "recent" = updated within 7 days
     let data = null;          // { courses:[...], announcements:[...] }
-    let activeCourse = "all"; // course filter (courseid or "all")
+    let activeCourse = "all"; // course filter (courseid, "all", or "recent")
     let query = "";
     let loading = false;
+
+    function lastSeen() { return Number(localStorage.getItem(SEEN_KEY) || 0); }
+    function annSeen() { return Number(localStorage.getItem(ANN_SEEN_KEY) || 0); }
+    // A file is "new" if modified after last visit; "recent" if within the window.
+    function isNew(f) { return f.timemodified && f.timemodified * 1000 > lastSeen() && lastSeen() > 0; }
+    function isRecent(f) { return f.timemodified && Date.now() - f.timemodified * 1000 <= RECENT_WINDOW; }
+
+    function unreadAnnouncements() {
+      if (!data) return 0;
+      const since = annSeen();
+      return (data.announcements || []).filter((a) => a.time && a.time * 1000 > since).length;
+    }
+    function updateBadge() {
+      const n = unreadAnnouncements();
+      if (!badgeEl) return;
+      if (n > 0) { badgeEl.textContent = n > 99 ? "99+" : String(n); badgeEl.hidden = false; }
+      else badgeEl.hidden = true;
+    }
 
     function fileIcon(mime, name) {
       const n = (name || "").toLowerCase();
@@ -1208,12 +1270,25 @@
         data = null; loading = false; return;
       }
       loading = false;
+      updateBadge();
       render();
+    }
+
+    // Count of files newer than the last visit (across all courses).
+    function newFileCount() {
+      if (!data) return 0;
+      let n = 0;
+      data.courses.forEach((c) => c.files.forEach((f) => { if (isNew(f)) n++; }));
+      return n;
     }
 
     function renderFilters() {
       if (!data) { filtersEl.innerHTML = ""; return; }
       const chips = [`<button class="res-filter ${activeCourse === "all" ? "active" : ""}" data-c="all">All courses</button>`];
+      const recentN = data.courses.reduce((s, c) => s + c.files.filter(isRecent).length, 0);
+      if (recentN) {
+        chips.push(`<button class="res-filter recent ${activeCourse === "recent" ? "active" : ""}" data-c="recent">🆕 Recent (${recentN})</button>`);
+      }
       data.courses.forEach((c) => {
         chips.push(`<button class="res-filter ${activeCourse == c.courseid ? "active" : ""}" data-c="${c.courseid}">${escHtml(c.shortname || c.course)}</button>`);
       });
@@ -1225,13 +1300,18 @@
 
     function render() {
       renderFilters();
-      // Announcements (respect search).
+      // Announcements (respect search). Recent filter hides them.
       announceEl.innerHTML = "";
-      let anns = data ? data.announcements : [];
+      let anns = (data && activeCourse !== "recent") ? data.announcements : [];
       if (query) anns = anns.filter((a) => (a.title + " " + a.message + " " + a.course).toLowerCase().includes(query));
+      if (activeCourse !== "all" && activeCourse !== "recent") {
+        anns = anns.filter((a) => data.courses.find((c) => String(c.courseid) === String(activeCourse) && (c.shortname === a.shortname || c.course === a.course)));
+      }
+      const annSince = annSeen();
       anns.slice(0, 8).forEach((a) => {
         const d = document.createElement("div");
-        d.className = "ann";
+        const unread = a.time && a.time * 1000 > annSince;
+        d.className = "ann" + (unread ? " unread" : "");
         d.innerHTML = `<h4>\U0001F4E2 ${hl(a.title || "Announcement")}</h4>` +
           (a.message ? `<div class="body">${hl(a.message.slice(0, 240))}${a.message.length > 240 ? "\u2026" : ""}</div>` : "") +
           `<div class="when">${escHtml(a.shortname || a.course || "")}${a.time ? " \u00b7 " + new Date(a.time * 1000).toLocaleDateString() : ""}</div>`;
@@ -1241,14 +1321,17 @@
       // Materials.
       modulesEl.innerHTML = "";
       if (!data) { modulesEl.innerHTML = '<div class="lms-empty">Sign in on the Portal tab to load your course materials.</div>'; return; }
+      const recentMode = activeCourse === "recent";
       let courses = data.courses;
-      if (activeCourse !== "all") courses = courses.filter((c) => String(c.courseid) === String(activeCourse));
+      if (!recentMode && activeCourse !== "all") courses = courses.filter((c) => String(c.courseid) === String(activeCourse));
 
       let shown = 0;
       courses.forEach((c) => {
         let files = c.files;
+        if (recentMode) files = files.filter(isRecent);
         if (query) files = files.filter((f) => (f.title + " " + f.filename + " " + f.section).toLowerCase().includes(query));
         if (!files.length) return;
+        if (recentMode) files = files.slice().sort((a, b) => (b.timemodified || 0) - (a.timemodified || 0));
         shown += files.length;
         const wrap = document.createElement("div");
         wrap.className = "res-module";
@@ -1256,10 +1339,12 @@
         files.forEach((f) => {
           const row = document.createElement("div");
           row.className = "adm-row";
+          const newPill = isNew(f) ? '<span class="new-pill">new</span>' : (recentMode && isRecent(f) ? '<span class="new-pill">recent</span>' : "");
+          const when = f.timemodified ? " \u00b7 " + new Date(f.timemodified * 1000).toLocaleDateString() : "";
           row.innerHTML =
             `<span class="res-file-icon">${fileIcon(f.mimetype, f.filename)}</span>` +
-            `<div class="info"><strong>${hl(f.title || f.filename)}</strong>` +
-            `<div class="meta">${hl(f.filename)}${f.filesize ? " \u00b7 " + fmtSize(f.filesize) : ""}${f.section ? " \u00b7 " + escHtml(f.section) : ""}</div></div>`;
+            `<div class="info"><strong>${hl(f.title || f.filename)}${newPill}</strong>` +
+            `<div class="meta">${hl(f.filename)}${f.filesize ? " \u00b7 " + fmtSize(f.filesize) : ""}${f.section ? " \u00b7 " + escHtml(f.section) : ""}${when}</div></div>`;
           const a = document.createElement("a");
           a.className = "dl"; a.textContent = "Download";
           a.href = "#";
@@ -1273,7 +1358,9 @@
       if (!shown && !anns.length) {
         modulesEl.innerHTML = query
           ? `<div class="lms-empty">No materials or announcements match \u201c${escHtml(query)}\u201d.</div>`
-          : '<div class="lms-empty">No downloadable materials found in your courses.</div>';
+          : recentMode
+            ? '<div class="lms-empty">Nothing updated in the last 7 days.</div>'
+            : '<div class="lms-empty">No downloadable materials found in your courses.</div>';
       } else if (shown) {
         const count = document.createElement("div");
         count.className = "res-count";
@@ -1308,20 +1395,63 @@
       });
     }
 
+    // Flatten all files (optionally filtered by a search term), best-match first.
+    function findFiles(term) {
+      if (!data) return [];
+      const q = (term || "").toLowerCase().trim();
+      const all = [];
+      data.courses.forEach((c) => (c.files || []).forEach((f) =>
+        all.push({ ...f, course: c.shortname || c.course, courseid: c.courseid })
+      ));
+      if (!q) return all;
+      const words = q.split(/\s+/).filter(Boolean);
+      const scored = all.map((f) => {
+        const hay = (f.title + " " + f.filename + " " + f.section + " " + f.course).toLowerCase();
+        let score = 0;
+        if (hay.includes(q)) score += 10;
+        words.forEach((w) => { if (hay.includes(w)) score += 2; });
+        return { f, score };
+      }).filter((x) => x.score > 0);
+      scored.sort((a, b) => b.score - a.score || (b.f.timemodified || 0) - (a.f.timemodified || 0));
+      return scored.map((x) => x.f);
+    }
+
+    // Mark the current state as "seen" so future NEW flags are relative to now.
+    function markSeen() {
+      localStorage.setItem(SEEN_KEY, String(Date.now()));
+      localStorage.setItem(ANN_SEEN_KEY, String(Date.now()));
+      updateBadge();
+    }
+
     return {
-      onOpen() { ensure(false); },
-      invalidate() { data = null; },
+      onOpen() {
+        // Ensure data, then (after it loads) mark this visit as seen so the
+        // unread badge clears and NEW flags reset for next time.
+        const first = !data;
+        ensure(false);
+        // Delay marking until data present so the badge reflects this session.
+        const settle = () => { if (data) { updateBadge(); setTimeout(markSeen, 2500); } else if (loading) setTimeout(settle, 300); };
+        settle();
+      },
+      invalidate() { data = null; localStorage.removeItem(SEEN_KEY); localStorage.removeItem(ANN_SEEN_KEY); updateBadge(); },
       cached() { return data; },
-      focusSearch(q) { switchView("resources"); if (searchEl && q) { searchEl.value = q; query = q.toLowerCase(); } ensure(false); },
+      updateBadge,
+      // Prime the badge in the background (used at startup / after login).
+      async refreshBadge() { try { await ensure(false); updateBadge(); } catch (_) {} },
+      findFiles,
+      showRecent() { switchView("resources"); activeCourse = "recent"; query = ""; if (searchEl) searchEl.value = ""; ensure(false); if (data) render(); },
+      focusSearch(q) { switchView("resources"); activeCourse = "all"; if (searchEl) { searchEl.value = q || ""; query = (q || "").toLowerCase(); } ensure(false); if (data) render(); },
+      // Download a specific file object (used by voice "open ...").
+      openFile(f) { if (f) downloadFile(f); },
     };
   })();
 
 
   // ------------------------------------------------------------ suggestions
   const SUGGESTIONS = [
-    "What's due this week?", "Any new announcements?", "Find my lecture notes",
-    "List my courses", "What are my grades?", "Weather in Tokyo",
-    "Tell me a joke", "What is 15% of 240",
+    "What's due this week?", "Any new announcements?", "What's new in my courses?",
+    "Open my lecture notes", "List my courses", "What are my grades?",
+    "Weather in Tokyo", "Tell me a joke",
   ];
   SUGGESTIONS.forEach((s) => {
     const b = document.createElement("button");
@@ -1375,6 +1505,9 @@
     const voiceOK = Boolean(SR);
     el.chipVoice.textContent = "voice: " + (voiceOK ? "ready" : "type only");
     el.chipVoice.classList.add(voiceOK ? "on" : "off");
+
+    // If already signed in to the portal, prime the unread-announcement badge.
+    if (lms.isLoggedIn()) { try { resources.refreshBadge(); } catch (_) {} }
 
     const hour = new Date().getHours();
     const part = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";

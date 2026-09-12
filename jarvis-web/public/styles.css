@@ -352,6 +352,25 @@ body{flex:1;}
 .res-filter.active{color:#1a0a14;background:linear-gradient(135deg,var(--pink),var(--pink-2));border-color:transparent;}
 .res-count{font-family:var(--font-mono);font-size:11px;color:var(--muted);padding:2px 2px 8px;}
 mark{background:rgba(241,75,178,.35);color:var(--text);border-radius:3px;padding:0 2px;}
+
+/* unread badge on the Resources tab */
+.tab-badge{
+  display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;
+  border-radius:999px;background:linear-gradient(135deg,#ff5b8a,var(--pink));color:#1a0a14;
+  font-family:var(--font-mono);font-size:10.5px;font-weight:700;vertical-align:middle;
+  box-shadow:0 0 10px rgba(241,75,178,.6);animation:badgePop .3s ease;
+}
+@keyframes badgePop{from{transform:scale(.4);opacity:0;}to{transform:scale(1);opacity:1;}}
+/* "new" pill on recently updated items */
+.new-pill{
+  flex:none;font-family:var(--font-mono);font-size:9.5px;font-weight:700;letter-spacing:.05em;
+  color:#04150f;background:linear-gradient(135deg,var(--green),#1b9e78);border-radius:999px;
+  padding:2px 7px;margin-left:6px;text-transform:uppercase;
+}
+.ann.unread{border-color:rgba(63,224,165,.45);}
+.ann.unread h4:after{content:"NEW";font-family:var(--font-mono);font-size:9.5px;font-weight:700;
+  color:#04150f;background:var(--green);border-radius:999px;padding:2px 6px;margin-left:8px;vertical-align:middle;}
+.res-filter.recent.active{background:linear-gradient(135deg,var(--green),#1b9e78);}
 .res-head h2{font-family:var(--font-display);font-size:18px;}
 .res-module{margin-bottom:14px;}
 .res-module > .rm-title{font-family:var(--font-display);font-size:14.5px;color:var(--pink-2);margin-bottom:8px;}
