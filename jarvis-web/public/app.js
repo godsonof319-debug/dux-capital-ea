@@ -20,6 +20,9 @@
     brandName: document.getElementById("brandName"),
     chipAI: document.getElementById("chipAI"),
     chipVoice: document.getElementById("chipVoice"),
+    wakeChip: document.getElementById("wakeChip"),
+    installChip: document.getElementById("installChip"),
+    footNote: document.getElementById("footNote"),
   };
 
   // ------------------------------------------------------------ state
@@ -33,7 +36,11 @@
     sessionId: "s_" + Math.random().toString(36).slice(2),
     pendingNote: false,
     listening: false,
+    wakeOn: false,
+    wakeActive: false, // true while capturing a command after the wake word
+    busy: false, // thinking or speaking
   };
+  const WAKE_RE = /\b(hey )?jarvis\b/i;
 
   const notes = JSON.parse(localStorage.getItem("jarvis_notes") || "[]");
   const saveNotes = () =>
@@ -89,11 +96,17 @@
         voices.find((v) => /en/i.test(v.lang)) ||
         voices[0];
       if (pick) u.voice = pick;
+      // Pause the wake listener while speaking so Jarvis doesn't hear itself.
+      wake.pause();
       u.onstart = () => setOrb("speaking", "Speaking…");
-      u.onend = () => setOrb(null, "Tap the orb and speak");
+      u.onend = () => {
+        setOrb(state.wakeOn ? null : null, state.wakeOn ? `Listening for “hey ${state.assistantName.toLowerCase()}”` : "Tap the orb and speak");
+        wake.resume();
+      };
+      u.onerror = () => wake.resume();
       window.speechSynthesis.speak(u);
     } catch (_) {
-      /* ignore */
+      wake.resume();
     }
   }
 
@@ -116,6 +129,7 @@
       return botSay(`Noted. You now have ${notes.length} note${notes.length === 1 ? "" : "s"}.`);
     }
 
+    state.busy = true;
     setOrb("thinking", "Thinking…");
     try {
       const reply = await route(text);
@@ -124,7 +138,11 @@
     } catch (err) {
       await botSay("Something went wrong: " + err.message);
     } finally {
-      if (!el.orb.classList.contains("speaking")) setOrb(null, "Tap the orb and speak");
+      state.busy = false;
+      // If not speaking, restore the idle hint (wake-aware).
+      if (!el.orb.classList.contains("speaking")) {
+        setOrb(null, state.wakeOn ? `Listening for “hey ${state.assistantName.toLowerCase()}”` : "Tap the orb and speak");
+      }
     }
   }
 
@@ -366,18 +384,22 @@
     recog.onresult = (e) => {
       const said = e.results[0][0].transcript;
       state.listening = false;
-      setOrb(null, "Tap the orb and speak");
       handleInput(said);
     };
     recog.onerror = (e) => {
       state.listening = false;
-      setOrb(null, "Tap the orb and speak");
+      setOrb(null, state.wakeOn ? `Listening for “hey ${state.assistantName.toLowerCase()}”` : "Tap the orb and speak");
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         addMsg("Microphone access was blocked. You can still type your commands.", "system");
       }
     };
     recog.onend = () => {
-      if (state.listening) { state.listening = false; setOrb(null, "Tap the orb and speak"); }
+      if (state.listening) {
+        state.listening = false;
+        if (!state.busy) setOrb(null, state.wakeOn ? `Listening for “hey ${state.assistantName.toLowerCase()}”` : "Tap the orb and speak");
+      }
+      // Resume the wake listener if it was temporarily paused for a one-shot.
+      if (state.wakeOn) wake.resume();
     };
   }
 
@@ -389,11 +411,140 @@
     if (state.listening) { recog.stop(); return; }
     try {
       if (window.speechSynthesis) window.speechSynthesis.cancel();
+      // Free the mic from the wake listener during a one-shot capture.
+      if (state.wakeOn) wake.pause();
       state.listening = true;
       setOrb("listening", "Listening…");
       recog.start();
     } catch (_) {
       state.listening = false;
+      if (state.wakeOn) wake.resume();
+      setOrb(null, state.wakeOn ? `Listening for “hey ${state.assistantName.toLowerCase()}”` : "Tap the orb and speak");
+    }
+  }
+
+  // ------------------------------------------------------------ wake word
+  // A separate continuous recognizer that listens for "hey jarvis". When it
+  // hears the wake word it either handles an inline command ("jarvis, what's
+  // the time") or arms a short window to capture the next utterance.
+  const wake = (() => {
+    let wr = null;
+    let running = false;
+    let paused = false;
+    let armed = false; // capturing a command right after the wake word
+    let armTimer = null;
+
+    function build() {
+      if (!SR) return null;
+      const r = new SR();
+      r.lang = "en-US";
+      r.continuous = true;
+      r.interimResults = true;
+      r.maxAlternatives = 1;
+      r.onresult = (e) => {
+        let transcript = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          transcript += e.results[i][0].transcript;
+        }
+        const finalChunk = e.results[e.results.length - 1].isFinal;
+        const text = transcript.trim();
+        if (!text) return;
+
+        if (armed) {
+          if (finalChunk) {
+            disarm();
+            handleInput(text);
+          }
+          return;
+        }
+        if (WAKE_RE.test(text)) {
+          const after = text.replace(WAKE_RE, "").replace(/^[\s,.:-]+/, "").trim();
+          if (after && finalChunk) {
+            // Inline command: "jarvis, what's the weather"
+            handleInput(after);
+          } else if (finalChunk || after.length === 0) {
+            arm();
+          }
+        }
+      };
+      r.onerror = (e) => {
+        if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+          setWake(false);
+          addMsg("Microphone access is blocked, so hands-free can't run.", "system");
+        }
+      };
+      r.onend = () => {
+        // Chrome auto-stops periodically; restart if we still want it on.
+        if (running && !paused) {
+          try { r.start(); } catch (_) {}
+        }
+      };
+      return r;
+    }
+
+    function arm() {
+      armed = true;
+      setOrb("listening", "Yes? I'm listening…");
+      if (state.voiceOut) {
+        // quick chirp handled by short prompt only if not busy
+      }
+      clearTimeout(armTimer);
+      armTimer = setTimeout(disarm, 8000);
+    }
+    function disarm() {
+      armed = false;
+      clearTimeout(armTimer);
+      if (!state.busy) {
+        setOrb(null, `Listening for “hey ${state.assistantName.toLowerCase()}”`);
+      }
+    }
+
+    return {
+      supported: () => Boolean(SR),
+      start() {
+        if (!SR) return false;
+        if (!wr) wr = build();
+        running = true;
+        paused = false;
+        try { wr.start(); } catch (_) {}
+        return true;
+      },
+      stop() {
+        running = false;
+        armed = false;
+        clearTimeout(armTimer);
+        if (wr) { try { wr.stop(); } catch (_) {} }
+      },
+      pause() {
+        if (!running) return;
+        paused = true;
+        if (wr) { try { wr.stop(); } catch (_) {} }
+      },
+      resume() {
+        if (!running) return;
+        paused = false;
+        if (wr) { try { wr.start(); } catch (_) {} }
+      },
+      isArmed: () => armed,
+    };
+  })();
+
+  function setWake(on) {
+    if (on && !wake.supported()) {
+      addMsg("Wake word needs the Web Speech API (Chrome or Edge). You can still tap the orb.", "system");
+      return;
+    }
+    // The one-shot recognizer and the wake recognizer can't both own the mic.
+    if (on && state.listening && recog) { try { recog.stop(); } catch (_) {} }
+    state.wakeOn = on;
+    el.wakeChip.textContent = "wake: " + (on ? "on" : "off");
+    el.wakeChip.classList.toggle("active", on);
+    if (on) {
+      wake.start();
+      setOrb(null, `Listening for “hey ${state.assistantName.toLowerCase()}”`);
+      addMsg(`Hands-free on. Say “hey ${state.assistantName}” anytime.`, "system");
+    } else {
+      wake.stop();
       setOrb(null, "Tap the orb and speak");
     }
   }
@@ -414,6 +565,7 @@
     if (!state.voiceOut && window.speechSynthesis) window.speechSynthesis.cancel();
   });
   el.clearBtn.addEventListener("click", () => { el.chat.innerHTML = ""; });
+  el.wakeChip.addEventListener("click", () => setWake(!state.wakeOn));
 
   // ------------------------------------------------------------ suggestions
   const SUGGESTIONS = [
@@ -427,6 +579,32 @@
     b.addEventListener("click", () => handleInput(s));
     el.suggestions.appendChild(b);
   });
+
+  // ------------------------------------------------------------ PWA
+  let deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    if (el.installChip) el.installChip.hidden = false;
+  });
+  if (el.installChip) {
+    el.installChip.classList.add("install");
+    el.installChip.addEventListener("click", async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      el.installChip.hidden = true;
+    });
+  }
+  window.addEventListener("appinstalled", () => {
+    if (el.installChip) el.installChip.hidden = true;
+  });
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    });
+  }
 
   // ------------------------------------------------------------ init
   async function init() {

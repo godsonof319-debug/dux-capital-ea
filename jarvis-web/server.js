@@ -40,6 +40,11 @@ const SYSTEM_PROMPT = () =>
   `Be helpful, clever, and to the point. Avoid markdown, lists, or code blocks ` +
   `unless explicitly asked.`;
 
+// ---------------------------------------------------------------- health
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, uptime: process.uptime() });
+});
+
 // ---------------------------------------------------------------- config info
 app.get("/api/config", (_req, res) => {
   res.json({

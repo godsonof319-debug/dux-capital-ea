@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>JARVIS — Voice Assistant</title>
 <meta name="description" content="JARVIS — a powerful browser-based voice assistant." />
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#0A0612" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Jarvis" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+<link rel="icon" href="/icons/icon-192.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/styles.css" />
@@ -18,8 +26,10 @@
       <span class="brand-name" id="brandName">JARVIS</span>
     </div>
     <div class="status" id="statusChips">
+      <button class="chip toggle" id="wakeChip" title="Hands-free 'Hey Jarvis' listening">wake: off</button>
       <span class="chip" id="chipAI">AI: …</span>
       <span class="chip" id="chipVoice">voice: …</span>
+      <button class="chip toggle" id="installChip" title="Install as an app" hidden>⤓ install</button>
     </div>
   </header>
 
@@ -52,7 +62,7 @@
   </form>
 
   <footer class="foot">
-    <span>Built for the browser · Web Speech API</span>
+    <span id="footNote">Built for the browser · Web Speech API</span>
     <button id="clearBtn" class="link-btn">Clear chat</button>
   </footer>
 
