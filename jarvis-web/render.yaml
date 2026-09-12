@@ -1,0 +1,29 @@
+# Render.com blueprint — deploy JARVIS Web with one click.
+# 1. Push this repo to GitHub (already done).
+# 2. On render.com: New → Blueprint → pick this repo.
+# 3. Add your secret env vars (OPENAI_API_KEY, OPENWEATHER_API_KEY) in the dashboard.
+services:
+  - type: web
+    name: jarvis-web
+    runtime: node
+    plan: free
+    rootDir: jarvis-web
+    buildCommand: npm install
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: DEFAULT_CITY
+        value: Windhoek
+      - key: ASSISTANT_NAME
+        value: Jarvis
+      - key: USER_NAME
+        value: Sir

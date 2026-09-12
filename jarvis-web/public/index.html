@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>JARVIS — Voice Assistant</title>
+<meta name="description" content="JARVIS — a powerful browser-based voice assistant." />
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#0A0612" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Jarvis" />
+<link rel="apple-touch-icon" href="/icons/icon-192.png" />
+<link rel="icon" href="/icons/icon-192.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="orb-bg" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="diamond">◆</span>
+      <span class="brand-name" id="brandName">JARVIS</span>
+    </div>
+    <div class="status" id="statusChips">
+      <button class="chip toggle" id="wakeChip" title="Hands-free 'Hey Jarvis' listening">wake: off</button>
+      <span class="chip" id="chipAI">AI: …</span>
+      <span class="chip" id="chipVoice">voice: …</span>
+      <button class="chip toggle" id="installChip" title="Install as an app" hidden>⤓ install</button>
+    </div>
+  </header>
+
+  <!-- Tab bar -->
+  <nav class="tabbar" role="tablist">
+    <button class="tab active" id="tabAssistant" role="tab" aria-selected="true" data-view="assistant">🎙️ Assistant</button>
+    <button class="tab" id="tabPortal" role="tab" aria-selected="false" data-view="portal">📚 Portal</button>
+    <button class="tab" id="tabResources" role="tab" aria-selected="false" data-view="resources">📂 Resources<span class="tab-badge" id="resBadge" hidden>0</span></button>
+    <button class="tab" id="tabIum" role="tab" aria-selected="false" data-view="ium">🌐 Browser</button>
+  </nav>
+
+  <!-- ============ ASSISTANT VIEW ============ -->
+  <div class="view active" id="view-assistant">
+  <main class="stage">
+    <!-- Animated voice orb -->
+    <section class="orb-wrap">
+      <button id="orb" class="orb" aria-label="Tap to talk">
+        <div class="orb-core"></div>
+        <div class="orb-ring ring1"></div>
+        <div class="orb-ring ring2"></div>
+        <div class="orb-ring ring3"></div>
+        <div class="orb-mic">🎤</div>
+      </button>
+      <p class="orb-hint" id="orbHint">Tap the orb and speak</p>
+    </section>
+
+    <!-- Transcript -->
+    <section class="chat" id="chat" aria-live="polite"></section>
+  </main>
+
+  <!-- Suggestion chips -->
+  <div class="suggestions" id="suggestions"></div>
+
+  <!-- Composer -->
+  <form class="composer" id="composer" autocomplete="off">
+    <button type="button" class="icon-btn" id="micBtn" title="Speak" aria-label="Speak">🎤</button>
+    <input id="input" type="text" placeholder="Ask me anything, or type a command…" autocomplete="off" />
+    <button type="button" class="icon-btn ghost" id="muteBtn" title="Toggle voice output" aria-label="Toggle voice output">🔊</button>
+    <button type="submit" class="send-btn" id="sendBtn">Send</button>
+  </form>
+
+  <footer class="foot">
+    <span id="footNote">Built for the browser · Web Speech API</span>
+    <button id="clearBtn" class="link-btn">Clear chat</button>
+  </footer>
+  </div><!-- /view-assistant -->
+
+  <!-- ============ IUM VIEW (in-app browser) ============ -->
+  <div class="view" id="view-ium">
+    <div class="wv">
+      <!-- Browser chrome -->
+      <div class="wv-chrome">
+        <div class="wv-nav">
+          <button class="wv-btn" id="wvBack" title="Back" aria-label="Back" disabled>‹</button>
+          <button class="wv-btn" id="wvFwd" title="Forward" aria-label="Forward" disabled>›</button>
+          <button class="wv-btn" id="wvReload" title="Reload" aria-label="Reload">⟳</button>
+          <button class="wv-btn" id="wvHome" title="Home" aria-label="Home">⌂</button>
+        </div>
+        <form class="wv-address" id="wvAddressForm">
+          <span class="wv-lock" id="wvLock">🔒</span>
+          <input id="wvAddress" class="wv-url" type="text" spellcheck="false"
+                 autocomplete="off" aria-label="Address" value="https://elearn.ium.edu.na/" />
+          <button type="button" class="wv-btn ghost" id="wvOpen" title="Open in a new tab">↗</button>
+        </form>
+      </div>
+
+      <!-- Bookmarks / quick links -->
+      <div class="wv-bookmarks" id="wvBookmarks">
+        <button class="wv-bm wv-sso" id="wvSso" hidden>🔓 Open signed in ↗</button>
+        <button class="wv-bm" data-url="https://elearn.ium.edu.na/">🎓 IUM Portal</button>
+        <button class="wv-bm" data-url="https://ium.edu.na/">🌐 Official IUM Website</button>
+        <button class="wv-bm" data-url="https://elearn.ium.edu.na/login/index.php">🔑 Portal Login</button>
+      </div>
+
+      <!-- Viewport -->
+      <div class="wv-viewport">
+        <div class="wv-loading" id="wvLoading"><span class="wv-spin"></span></div>
+        <iframe
+          id="iumFrame"
+          class="wv-frame"
+          title="IUM in-app browser"
+          src="https://elearn.ium.edu.na/"
+          referrerpolicy="no-referrer-when-downgrade"
+          allow="fullscreen; camera; microphone; clipboard-read; clipboard-write"></iframe>
+        <div class="wv-fallback" id="iumFallback" hidden>
+          <span class="wv-fallback-icon">🚫🖼️</span>
+          <p><strong id="wvFallbackHost">This site</strong> doesn't allow being displayed inside
+             another app for security reasons.</p>
+          <button class="send-btn" id="wvFallbackSso" hidden>🔓 Open it signed in ↗</button>
+          <a class="send-btn ghost-btn" id="wvFallbackOpen" href="https://elearn.ium.edu.na/" target="_blank" rel="noopener">Open it in a new tab ↗</a>
+        </div>
+      </div>
+    </div>
+  </div><!-- /view-ium -->
+
+  <!-- ============ PORTAL VIEW (LMS dashboard) ============ -->
+  <div class="view" id="view-portal">
+    <!-- Login card -->
+    <div class="lms-login" id="lmsLogin">
+      <div class="lms-login-card">
+        <span class="lms-logo">🎓</span>
+        <h2>IUM Student Portal</h2>
+        <p class="lms-sub" id="lmsSubtitle">Sign in with your own LMS credentials</p>
+        <form id="lmsLoginForm" autocomplete="on">
+          <label>Student number / username
+            <input id="lmsUser" type="text" autocomplete="username" required placeholder="e.g. 21234567" />
+          </label>
+          <label>Password
+            <input id="lmsPass" type="password" autocomplete="current-password" required placeholder="Your LMS password" />
+          </label>
+          <button class="send-btn lms-submit" type="submit" id="lmsSubmit">Sign in</button>
+          <p class="lms-msg" id="lmsMsg" role="alert"></p>
+        </form>
+        <p class="lms-privacy">
+          🔒 Your credentials are sent once to the server to obtain a secure token
+          via Moodle's official login. The token stays on the server — never in
+          your browser — and only your own data is ever retrieved.
+        </p>
+      </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div class="lms-dash" id="lmsDash" hidden>
+      <div class="lms-dash-head">
+        <div class="lms-user">
+          <span class="lms-avatar" id="lmsAvatar">🎓</span>
+          <div>
+            <strong id="lmsName">Student</strong>
+            <span class="lms-site" id="lmsSite"></span>
+          </div>
+        </div>
+        <button class="wv-btn ghost" id="lmsLogout" title="Sign out">Sign out</button>
+      </div>
+
+      <div class="lms-subtabs" id="lmsSubtabs">
+        <button class="lms-subtab active" data-panel="courses">📘 Courses</button>
+        <button class="lms-subtab" data-panel="grades">🎯 Grades</button>
+        <button class="lms-subtab" data-panel="assignments">📝 Assignments</button>
+        <button class="lms-subtab" data-panel="calendar">📅 Upcoming</button>
+      </div>
+
+      <div class="lms-panels">
+        <div class="lms-panel active" id="panel-courses"><div class="lms-loading">Loading…</div></div>
+        <div class="lms-panel" id="panel-grades"><div class="lms-loading">Loading…</div></div>
+        <div class="lms-panel" id="panel-assignments"><div class="lms-loading">Loading…</div></div>
+        <div class="lms-panel" id="panel-calendar"><div class="lms-loading">Loading…</div></div>
+      </div>
+    </div>
+
+    <!-- In-app content viewer: opens a course item (page, link, file) here -->
+    <div class="mv" id="modViewer" hidden>
+      <div class="mv-head">
+        <button class="wv-btn" id="mvBack" title="Back" aria-label="Back">‹</button>
+        <div class="mv-title">
+          <strong id="mvName">Item</strong>
+          <span class="mv-meta" id="mvMeta"></span>
+        </div>
+        <a class="wv-btn ghost" id="mvExternal" title="Open in a new tab" target="_blank" rel="noopener" hidden>↗</a>
+      </div>
+      <div class="mv-body" id="mvBody"><div class="lms-loading">Loading…</div></div>
+    </div>
+  </div><!-- /view-portal -->
+
+  <!-- ============ RESOURCES VIEW (bridge to your Moodle courses) ============ -->
+  <div class="view" id="view-resources">
+    <div class="res-wrap" id="resWrap">
+      <div class="res-head">
+        <h2>📂 Course Resources</h2>
+        <button class="wv-btn ghost" id="resRefresh" title="Refresh">⟳</button>
+      </div>
+      <div class="res-search">
+        <span class="res-search-icon">🔍</span>
+        <input id="resSearch" type="search" placeholder="Search your materials & announcements…" autocomplete="off" />
+      </div>
+      <div class="res-filters" id="resFilters"></div>
+      <div id="resAnnounce"></div>
+      <div id="resModules"><div class="lms-empty">Sign in on the Portal tab to load your course materials.</div></div>
+    </div>
+  </div><!-- /view-resources -->
+
+  <script src="/app.js"></script>
+</body>
+</html>
