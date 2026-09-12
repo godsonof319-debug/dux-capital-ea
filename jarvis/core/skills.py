@@ -392,8 +392,7 @@ class Skills:
             n = self.notes.add(m.group(1).strip())
             return f"Noted. You now have {n} note{'s' if n != 1 else ''}."
         if t in ("take a note", "note that", "remember that", "make a note"):
-            self.speak("What should I note?")
-            return "__PROMPT_NOTE__"  # handled by assistant loop
+            return "__PROMPT_NOTE__"  # assistant will prompt for the note body
         # Read notes
         if self._match(t, "read notes", "read my notes", "list notes", "my notes", "show notes"):
             notes = self.notes.all()

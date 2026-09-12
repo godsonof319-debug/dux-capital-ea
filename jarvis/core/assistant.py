@@ -41,49 +41,57 @@ class Assistant:
         )
 
     # ------------------------------------------------------------------ core
-    def process(self, text: str) -> bool:
-        """Handle one command. Returns False if Jarvis should shut down."""
-        if not text:
-            return True
+    def respond(self, text: str, speak: bool = True) -> tuple[Optional[str], bool]:
+        """Process one input and return (reply_text, keep_running).
+
+        This is the single source of truth used by the CLI, the GUI, and the
+        hotword loop. When `speak` is True the reply is also voiced/printed via
+        the voice engine; when False the caller is responsible for display.
+        """
+        if not text or not text.strip():
+            return None, True
         cleaned = text.strip()
         low = cleaned.lower().strip(" .!?")
 
+        reply: Optional[str]
+        keep_running = True
+
         if low in EXIT_WORDS:
-            self.voice.speak(
-                random.choice(
-                    [
-                        f"Goodbye, {config.USER_NAME}.",
-                        "Powering down. Call me when you need me.",
-                        "Shutting down. Until next time.",
-                    ]
-                )
+            reply = random.choice(
+                [
+                    f"Goodbye, {config.USER_NAME}.",
+                    "Powering down. Call me when you need me.",
+                    "Shutting down. Until next time.",
+                ]
             )
-            return False
-
-        if low in ("reset", "clear memory", "forget everything"):
+            keep_running = False
+        elif low in ("reset", "clear memory", "forget everything"):
             self.brain.reset()
-            self.voice.speak("Conversation memory cleared.")
-            return True
-
-        # If we're waiting for the content of a note, capture it now.
-        if self._pending_note:
+            reply = "Conversation memory cleared."
+        elif self._pending_note:
             self._pending_note = False
             n = self.skills.notes.add(cleaned)
-            self.voice.speak(f"Noted. You now have {n} note{'s' if n != 1 else ''}.")
-            return True
+            reply = f"Noted. You now have {n} note{'s' if n != 1 else ''}."
+        else:
+            response = self.skills.handle(cleaned)
+            if response == "__PROMPT_NOTE__":
+                self._pending_note = True
+                reply = "What should I note?"
+            elif response is not None:
+                reply = response
+            else:
+                # Fall back to the AI brain for open conversation.
+                reply = self.brain.think(cleaned)
 
-        # Try built-in skills first.
-        response = self.skills.handle(cleaned)
-        if response == "__PROMPT_NOTE__":
-            self._pending_note = True
-            return True
-        if response is not None:
-            self.voice.speak(response)
-            return True
+        if speak and reply is not None:
+            self.voice.speak(reply)
+        return reply, keep_running
 
-        # Fall back to the AI brain for open conversation.
-        self.voice.speak(self.brain.think(cleaned))
-        return True
+    def process(self, text: str) -> bool:
+        """Handle one command (speaking the reply). Returns False to shut down."""
+        _, keep_running = self.respond(text, speak=True)
+        return keep_running
+
 
     # ------------------------------------------------------------------ loops
     def run_text_loop(self) -> None:
@@ -97,9 +105,44 @@ class Assistant:
             running = self.process(text)
 
     def run_wake_loop(self) -> None:
-        """Hands-free mode: wait for the wake word, then take a command."""
+        """Hands-free mode: wait for the wake word, then take a command.
+
+        Prefers the offline Vosk hotword engine (private, no internet). Falls
+        back to the online recognizer if Vosk isn't set up.
+        """
         self.greet()
         wake = config.WAKE_WORD
+
+        # Try the offline hotword engine first.
+        try:
+            from .hotword import HotwordListener
+
+            listener = HotwordListener(wake)
+        except Exception:
+            listener = None
+
+        if listener is not None and listener.available:
+            self.voice.speak(f"Offline wake word active. Say '{wake}' to wake me.")
+            while True:
+                detected = listener.listen_for_wake()
+                if not detected:
+                    break
+                self.voice.speak(
+                    random.choice(["Yes?", f"At your service, {config.USER_NAME}.", "Go ahead."])
+                )
+                command = self.voice.listen(prompt="Listening for your command")
+                if command is None:
+                    self.voice.speak("I didn't catch that.")
+                    continue
+                if not self.process(command):
+                    break
+            return
+
+        if listener is not None and listener.reason_unavailable:
+            print(f"{C.GREY}[hotword] offline engine unavailable: "
+                  f"{listener.reason_unavailable}{C.RESET}")
+
+        # Fallback: online recognizer polling for the wake word.
         self.voice.speak(f"Say '{wake}' to wake me.")
         while True:
             heard = self.voice.listen(prompt=f"Waiting for wake word '{wake}'")

@@ -14,7 +14,16 @@ PyAudio>=0.2.13
 # ---- AI brain (optional) ----
 openai>=1.30.0            # smart free-form answers (needs OPENAI_API_KEY)
 
+# ---- Offline hands-free wake word (optional) ----
+# Runs fully on-device; also download a model (see README) and set VOSK_MODEL_PATH.
+vosk>=0.3.45
+sounddevice>=0.4.6
+
 # ---- Nice to have ----
 wikipedia>=1.4.0          # quick encyclopedia lookups
 psutil>=5.9.0             # system info (cpu, memory, battery)
 pynput>=1.7.6            # media keys: play/pause, next, previous, volume
+
+# ---- GUI ----
+# tkinter ships with standard Python on Windows & macOS.
+# Linux: install via your package manager, e.g. `sudo apt install python3-tk`.

@@ -62,13 +62,39 @@ That's it. Speak or type a command when prompted.
 
 ```bash
 python jarvis.py                  # interactive: speak OR type each command
-python jarvis.py --wake           # hands-free: say the wake word first
+python jarvis.py --gui            # desktop window: chat + 🎤 mic + hands-free toggle
+python jarvis.py --wake           # hands-free: say the wake word first (offline)
 python jarvis.py --text           # text-only (disable spoken output)
 python jarvis.py --once "weather" # run one command and exit (great for scripts)
 ```
 
 In **wake mode**, say the wake word (default `jarvis`) and then your command —
 or say them together: *"jarvis, what's the weather"*.
+
+### 🖥️ Desktop GUI (`--gui`)
+
+A neon-on-dark window with a scrolling transcript, a text box, a 🎤 **Speak**
+button for one-shot voice commands, and a **Hands-free** checkbox that turns on
+offline wake-word listening in the background. All work runs on worker threads,
+so the window never freezes.
+
+> tkinter ships with standard Python on **Windows** and **macOS**. On **Linux**
+> install it with `sudo apt install python3-tk`.
+
+### 🎙️ Offline hands-free wake word (Vosk)
+
+`--wake` (and the GUI's hands-free toggle) prefer **Vosk** — a speech model that
+runs entirely **on your device**, so continuous listening needs no internet and
+no API key, and nothing leaves your machine.
+
+```bash
+pip install vosk sounddevice
+# download a small model (~50 MB):
+#   https://alphacephei.com/vosk/models   e.g. vosk-model-small-en-us-0.15
+# then either set VOSK_MODEL_PATH in .env, or unzip it into  jarvis/models/
+```
+
+If Vosk isn't set up, `--wake` automatically falls back to the online recognizer.
 
 ---
 
@@ -125,7 +151,10 @@ jarvis/
 │   ├── brain.py         # OpenAI conversation (offline fallback included)
 │   ├── skills.py        # all built-in task commands
 │   ├── media.py         # music playback + media-key transport control
+│   ├── hotword.py       # offline Vosk wake-word detection
+│   ├── gui.py           # tkinter desktop window
 │   └── assistant.py     # orchestration + main loops
+├── models/              # (optional) drop a Vosk model here for hands-free
 └── data/                # notes and local state (git-ignored)
 ```
 
