@@ -33,6 +33,14 @@
     </div>
   </header>
 
+  <!-- Tab bar -->
+  <nav class="tabbar" role="tablist">
+    <button class="tab active" id="tabAssistant" role="tab" aria-selected="true" data-view="assistant">🎙️ Assistant</button>
+    <button class="tab" id="tabIum" role="tab" aria-selected="false" data-view="ium">🎓 IUM</button>
+  </nav>
+
+  <!-- ============ ASSISTANT VIEW ============ -->
+  <div class="view active" id="view-assistant">
   <main class="stage">
     <!-- Animated voice orb -->
     <section class="orb-wrap">
@@ -65,6 +73,38 @@
     <span id="footNote">Built for the browser · Web Speech API</span>
     <button id="clearBtn" class="link-btn">Clear chat</button>
   </footer>
+  </div><!-- /view-assistant -->
+
+  <!-- ============ IUM VIEW ============ -->
+  <div class="view" id="view-ium">
+    <div class="ium-bar">
+      <div class="ium-title">
+        <span class="ium-logo">🎓</span>
+        <div>
+          <strong>International University of Management</strong>
+          <span class="ium-sub">e-Learning Portal</span>
+        </div>
+      </div>
+      <div class="ium-actions">
+        <button class="ium-btn" id="iumReload" title="Reload">⟳ Reload</button>
+        <a class="ium-btn" id="iumOpen" href="https://elearn.ium.edu.na/" target="_blank" rel="noopener">Open ↗</a>
+        <a class="ium-btn ghost" href="https://ium.edu.na/" target="_blank" rel="noopener">Main site ↗</a>
+      </div>
+    </div>
+    <div class="ium-frame-wrap">
+      <iframe
+        id="iumFrame"
+        class="ium-frame"
+        title="IUM e-Learning Portal"
+        src="https://elearn.ium.edu.na/"
+        referrerpolicy="no-referrer-when-downgrade"
+        allow="fullscreen; camera; microphone; clipboard-read; clipboard-write"></iframe>
+      <div class="ium-fallback" id="iumFallback" hidden>
+        <p>The IUM portal can't be embedded here (it may block being shown inside another site).</p>
+        <a class="send-btn" href="https://elearn.ium.edu.na/" target="_blank" rel="noopener">Open the IUM portal ↗</a>
+      </div>
+    </div>
+  </div><!-- /view-ium -->
 
   <script src="/app.js"></script>
 </body>

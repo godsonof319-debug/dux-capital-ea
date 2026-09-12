@@ -30,7 +30,7 @@ except Exception:  # pragma: no cover
     _HAS_TK = False
 
 
-# Neon-on-dark palette to echo the DUX/Jarvis aesthetic.
+# Neon-on-dark palette for the Jarvis aesthetic.
 BG = "#0A0612"
 PANEL = "#150C22"
 TEXT = "#F4EEFA"

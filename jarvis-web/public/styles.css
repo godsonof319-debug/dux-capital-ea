@@ -56,6 +56,28 @@ body{
 .chip.install:hover{background:linear-gradient(135deg,var(--pink),var(--pink-2));color:#1a0a14;}
 @media (max-width:560px){ .brand-name{display:none;} .chip{font-size:10px;padding:5px 8px;} }
 
+/* ---- Tab bar ---- */
+.tabbar{
+  display:flex;gap:6px;justify-content:center;z-index:2;
+  padding:2px 16px 6px;width:100%;max-width:820px;margin:0 auto;
+}
+.tab{
+  flex:1;max-width:220px;cursor:pointer;
+  font-family:var(--font-display);font-weight:700;font-size:14px;
+  color:var(--muted);background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:11px 14px;transition:all .15s ease;
+}
+.tab:hover{color:var(--text);border-color:var(--pink);}
+.tab.active{
+  color:#1a0a14;background:linear-gradient(135deg,var(--pink),var(--pink-2));
+  border-color:transparent;box-shadow:0 4px 16px rgba(241,75,178,.35);
+}
+
+/* ---- Views ---- */
+.view{flex:1;display:none;flex-direction:column;min-height:0;width:100%;z-index:2;}
+.view.active{display:flex;}
+body{flex:1;}
+
 .stage{
   flex:1;display:flex;flex-direction:column;align-items:center;
   z-index:2;overflow:hidden;padding:0 16px;width:100%;
@@ -155,9 +177,48 @@ body{
 .link-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-family:var(--font-mono);font-size:11px;text-decoration:underline;}
 .link-btn:hover{color:var(--pink-2);}
 
+/* ---- IUM view ---- */
+#view-ium{padding:0 16px 16px;max-width:1100px;margin:0 auto;}
+.ium-bar{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;padding:8px 4px 12px;
+}
+.ium-title{display:flex;align-items:center;gap:12px;}
+.ium-logo{
+  font-size:26px;width:46px;height:46px;flex:none;display:grid;place-items:center;
+  border-radius:12px;background:linear-gradient(135deg,var(--purple),var(--purple-2));
+  box-shadow:0 0 18px rgba(124,58,237,.4);
+}
+.ium-title strong{font-family:var(--font-display);font-size:15px;display:block;}
+.ium-sub{font-family:var(--font-mono);font-size:11px;color:var(--muted);letter-spacing:.05em;}
+.ium-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.ium-btn{
+  font-family:var(--font-mono);font-size:12.5px;text-decoration:none;cursor:pointer;
+  color:#1a0a14;background:linear-gradient(135deg,var(--pink),var(--pink-2));
+  border:none;border-radius:10px;padding:9px 14px;transition:transform .15s ease;
+  display:inline-flex;align-items:center;
+}
+.ium-btn:hover{transform:translateY(-1px);}
+.ium-btn.ghost{background:var(--panel-solid);color:var(--muted);border:1px solid var(--line);}
+.ium-btn.ghost:hover{color:var(--text);border-color:var(--pink);}
+.ium-frame-wrap{
+  position:relative;flex:1;min-height:0;border-radius:16px;overflow:hidden;
+  border:1px solid var(--line);background:var(--panel-solid);
+  box-shadow:0 10px 40px rgba(0,0,0,.4);
+}
+.ium-frame{width:100%;height:100%;border:0;display:block;background:#fff;}
+.ium-fallback{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:16px;text-align:center;padding:24px;color:var(--muted);
+  background:var(--panel-solid);
+}
+.ium-fallback p{max-width:420px;line-height:1.6;}
+
 @media (max-width:560px){
   .orb{width:104px;height:104px;}
   .orb-core{inset:26px;}
   .msg{max-width:88%;}
   .send-btn{padding:0 14px;}
+  .ium-bar{gap:8px;}
+  .ium-title strong{font-size:13px;}
 }

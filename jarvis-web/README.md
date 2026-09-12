@@ -4,8 +4,7 @@ A powerful, fully-functional **web app** version of JARVIS. It runs in any moder
 browser, **talks and listens** using the built-in Web Speech API (no installs,
 no drivers), and keeps your API keys safe on a small Node/Express backend.
 
-Inspired by Iron Man's J.A.R.V.I.S. and styled to match the DUX Capital neon
-aesthetic.
+Inspired by Iron Man's J.A.R.V.I.S. with a neon aesthetic.
 
 ---
 
@@ -24,6 +23,9 @@ aesthetic.
 - 🌦️ **Live weather** (via the server) and 📚 **Wikipedia** lookups.
 - 📱 **Responsive** — works on desktop and mobile.
 - 🕹️ **Suggestion chips** to get started fast.
+- 🎓 **IUM tab** — a second tab that embeds the **International University of
+  Management** e-Learning portal (elearn.ium.edu.na) with reload / open-in-new-tab
+  controls and a graceful fallback link if the site blocks embedding.
 
 > **Browser support:** voice input uses the Web Speech API, best in
 > **Chrome/Edge** (and Safari). If a browser lacks it, Jarvis automatically

@@ -567,6 +567,37 @@
   el.clearBtn.addEventListener("click", () => { el.chat.innerHTML = ""; });
   el.wakeChip.addEventListener("click", () => setWake(!state.wakeOn));
 
+  // ------------------------------------------------------------ tabs (IUM)
+  const tabs = document.querySelectorAll(".tab");
+  const views = { assistant: document.getElementById("view-assistant"), ium: document.getElementById("view-ium") };
+  function switchView(name) {
+    tabs.forEach((t) => {
+      const on = t.dataset.view === name;
+      t.classList.toggle("active", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    Object.entries(views).forEach(([k, v]) => v && v.classList.toggle("active", k === name));
+  }
+  tabs.forEach((t) => t.addEventListener("click", () => switchView(t.dataset.view)));
+
+  // IUM iframe reload + embed-block fallback.
+  const iumFrame = document.getElementById("iumFrame");
+  const iumFallback = document.getElementById("iumFallback");
+  const iumReload = document.getElementById("iumReload");
+  if (iumReload && iumFrame) {
+    iumReload.addEventListener("click", () => {
+      if (iumFallback) iumFallback.hidden = true;
+      // eslint-disable-next-line no-self-assign
+      iumFrame.src = iumFrame.src;
+    });
+  }
+  // If the portal refuses to be embedded, show the fallback after a grace period.
+  if (iumFrame && iumFallback) {
+    let loaded = false;
+    iumFrame.addEventListener("load", () => { loaded = true; iumFallback.hidden = true; });
+    setTimeout(() => { if (!loaded) iumFallback.hidden = false; }, 6000);
+  }
+
   // ------------------------------------------------------------ suggestions
   const SUGGESTIONS = [
     "What time is it?", "Weather in Tokyo", "Tell me a joke",
