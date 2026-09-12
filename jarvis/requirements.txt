@@ -1,0 +1,19 @@
+# ---- Core (recommended) ----
+python-dotenv>=1.0.0      # loads your .env config
+requests>=2.31.0          # weather, wikipedia, web calls
+
+# ---- Voice (optional but recommended) ----
+pyttsx3>=2.90             # offline text-to-speech (Jarvis' voice)
+SpeechRecognition>=3.10.0 # speech-to-text (microphone)
+# PyAudio is needed for the microphone. Install notes:
+#   Windows:  pip install pyaudio
+#   macOS:    brew install portaudio && pip install pyaudio
+#   Linux:    sudo apt install portaudio19-dev python3-pyaudio && pip install pyaudio
+PyAudio>=0.2.13
+
+# ---- AI brain (optional) ----
+openai>=1.30.0            # smart free-form answers (needs OPENAI_API_KEY)
+
+# ---- Nice to have ----
+wikipedia>=1.4.0          # quick encyclopedia lookups
+psutil>=5.9.0             # system info (cpu, memory, battery)
