@@ -699,12 +699,13 @@
     const subtabs = document.querySelectorAll(".lms-subtab");
     const panels = {
       courses: document.getElementById("panel-courses"),
+      grades: document.getElementById("panel-grades"),
       assignments: document.getElementById("panel-assignments"),
       calendar: document.getElementById("panel-calendar"),
     };
     let sessionId = localStorage.getItem(SKEY) || "";
     let loadedOnce = false;
-    const loaded = { courses: false, assignments: false, calendar: false };
+    const loaded = { courses: false, grades: false, assignments: false, calendar: false };
 
     if (!form) return { onOpen() {} };
 
@@ -721,7 +722,7 @@
 
     function showLogin(text) {
       sessionId = ""; localStorage.removeItem(SKEY);
-      loadedOnce = false; loaded.courses = loaded.assignments = loaded.calendar = false;
+      loadedOnce = false; loaded.courses = loaded.grades = loaded.assignments = loaded.calendar = false;
       dash.hidden = true; loginBox.hidden = false;
       if (text) { msg.textContent = text; msg.classList.remove("ok"); }
     }
@@ -791,6 +792,7 @@
       panel.innerHTML = '<div class="lms-loading">Loading…</div>';
       try {
         if (name === "courses") await renderCourses(panel);
+        else if (name === "grades") await renderGradesCourseList(panel);
         else if (name === "assignments") await renderAssignments(panel);
         else if (name === "calendar") await renderCalendar(panel);
         loaded[name] = true;
@@ -873,6 +875,59 @@
       } catch (err) {
         alert("Download error: " + err.message);
       }
+    }
+
+    // Grades: first pick a course, then show its grade items.
+    async function renderGradesCourseList(panel) {
+      const data = await api("/api/lms/courses");
+      if (!data.ok) throw new Error(data.message);
+      if (!data.courses.length) { panel.innerHTML = '<div class="lms-empty">No courses found.</div>'; return; }
+      panel.innerHTML = "";
+      const hint = document.createElement("div");
+      hint.className = "meta";
+      hint.style.cssText = "padding:2px 2px 8px;color:var(--muted);font-family:var(--font-mono);font-size:11.5px;";
+      hint.textContent = "Select a course to view your grades";
+      panel.appendChild(hint);
+      data.courses.forEach((c) => {
+        const card = document.createElement("div");
+        card.className = "lms-card click";
+        card.innerHTML = h(`<h4>${esc(c.fullname)}</h4><div class="meta">${esc(c.shortname)}</div>`);
+        card.addEventListener("click", () => openGrades(panel, c));
+        panel.appendChild(card);
+      });
+    }
+
+    async function openGrades(panel, course) {
+      panel.innerHTML = '<div class="lms-loading">Loading grades…</div>';
+      const data = await api(`/api/lms/courses/${course.id}/grades`);
+      panel.innerHTML = "";
+      const back = document.createElement("button");
+      back.className = "lms-back"; back.textContent = "‹ Back to courses";
+      back.addEventListener("click", () => { loaded.grades = false; loadPanel("grades"); });
+      panel.appendChild(back);
+      const title = document.createElement("div");
+      title.className = "lms-card";
+      title.innerHTML = `<h4>${esc(course.fullname)}</h4><div class="meta">${esc(course.shortname)}</div>`;
+      panel.appendChild(title);
+
+      if (!data.ok) { panel.insertAdjacentHTML("beforeend", `<div class="lms-empty">${esc(data.message)}</div>`); return; }
+      const items = (data.grades || []).filter((g) => g.itemname || g.grade);
+      if (!items.length) { panel.insertAdjacentHTML("beforeend", '<div class="lms-empty">No grades available yet.</div>'); return; }
+
+      items.forEach((g) => {
+        const isTotal = g.itemtype === "course";
+        const card = document.createElement("div");
+        card.className = "lms-card";
+        if (isTotal) card.style.borderColor = "rgba(63,224,165,.4)";
+        const pct = g.percentage && g.percentage !== "-" ? ` · ${esc(g.percentage)}` : "";
+        const range = g.range && g.range !== "0–100" ? ` <span style="opacity:.7">/ ${esc(g.range)}</span>` : "";
+        card.innerHTML = h(
+          `<h4>${esc(g.itemname || (isTotal ? "Course total" : "Item"))}</h4>` +
+          `<div class="meta" style="font-size:13px;color:var(--text)">${esc(g.grade || "—")}${range}${pct}</div>` +
+          (g.feedback ? `<div class="meta" style="margin-top:6px">${esc(g.feedback.replace(/<[^>]+>/g, ""))}</div>` : "")
+        );
+        panel.appendChild(card);
+      });
     }
 
     async function renderAssignments(panel) {

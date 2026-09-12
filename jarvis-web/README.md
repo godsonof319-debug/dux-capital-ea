@@ -26,8 +26,8 @@ Inspired by Iron Man's J.A.R.V.I.S. with a neon aesthetic.
 - 📚 **Portal tab** — a native **LMS dashboard** for the Moodle-based IUM
   e-Learning site. Students sign in with **their own credentials**; the backend
   exchanges them for a token via Moodle's **official Web Services** and shows
-  their **courses, course materials (with downloads), assignments, and upcoming
-  events**. See "LMS integration" below for the security model.
+  their **courses, course materials (with downloads), grades, assignments, and
+  upcoming events**. See "LMS integration" below for the security model.
 - 🌐 **Browser tab** — an **in-app browser (webview)** with real browser chrome
   (back / forward / reload / home), an editable **address bar**, and quick-link
   bookmarks stepping from the **IUM Portal** (elearn.ium.edu.na) to the
