@@ -6,6 +6,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
+import * as lms from "./lms.js";
 
 dotenv.config();
 
@@ -20,6 +21,9 @@ const CONFIG = {
   weatherKey: (process.env.OPENWEATHER_API_KEY || "").trim(),
   defaultCity: (process.env.DEFAULT_CITY || "Windhoek").trim() || "Windhoek",
   weatherUnits: (process.env.WEATHER_UNITS || "metric").trim() || "metric",
+  // Moodle LMS base URL (e.g. https://elearn.ium.edu.na). Configurable so this
+  // works for any Moodle site, not just IUM.
+  lmsUrl: (process.env.LMS_URL || "https://elearn.ium.edu.na").trim(),
 };
 
 const app = express();
@@ -165,6 +169,102 @@ app.post("/api/reset", (req, res) => {
   res.json({ ok: true });
 });
 
+// ================================================================ LMS (Moodle)
+// Legitimate, credential-based integration. The student's own username/password
+// are exchanged for a per-user token via Moodle's official Web Services; the
+// token is kept SERVER-SIDE and never sent to the browser.
+
+// Reads the opaque LMS session id from the header the client sends.
+function lmsSession(req) {
+  return (req.get("x-lms-session") || "").trim();
+}
+
+function lmsError(res, err) {
+  const status = err.code === "NO_SESSION" ? 401 : 400;
+  res.status(status).json({ ok: false, message: err.message || "LMS error." });
+}
+
+app.get("/api/lms/info", (_req, res) => {
+  res.json({ ok: true, lmsUrl: CONFIG.lmsUrl });
+});
+
+app.post("/api/lms/login", async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ ok: false, message: "Enter your username and password." });
+  }
+  try {
+    const { sessionId, user } = await lms.login(CONFIG.lmsUrl, username, password);
+    // Return the session id in the body; the client stores it and sends it back
+    // in the x-lms-session header. The Moodle token itself never leaves here.
+    res.json({ ok: true, sessionId, user });
+  } catch (err) {
+    lmsError(res, err);
+  }
+});
+
+app.post("/api/lms/logout", (req, res) => {
+  lms.logout(lmsSession(req));
+  res.json({ ok: true });
+});
+
+app.get("/api/lms/me", (req, res) => {
+  const user = lms.getUser(lmsSession(req));
+  if (!user) return res.status(401).json({ ok: false, message: "Not logged in." });
+  res.json({ ok: true, user });
+});
+
+app.get("/api/lms/courses", async (req, res) => {
+  try {
+    res.json({ ok: true, courses: await lms.getCourses(lmsSession(req)) });
+  } catch (err) {
+    lmsError(res, err);
+  }
+});
+
+app.get("/api/lms/courses/:id/contents", async (req, res) => {
+  try {
+    res.json({ ok: true, sections: await lms.getCourseContents(lmsSession(req), req.params.id) });
+  } catch (err) {
+    lmsError(res, err);
+  }
+});
+
+app.get("/api/lms/assignments", async (req, res) => {
+  try {
+    res.json({ ok: true, assignments: await lms.getAssignments(lmsSession(req)) });
+  } catch (err) {
+    lmsError(res, err);
+  }
+});
+
+app.get("/api/lms/courses/:id/grades", async (req, res) => {
+  try {
+    res.json({ ok: true, grades: await lms.getGrades(lmsSession(req), req.params.id) });
+  } catch (err) {
+    lmsError(res, err);
+  }
+});
+
+app.get("/api/lms/calendar", async (req, res) => {
+  try {
+    res.json({ ok: true, events: await lms.getCalendar(lmsSession(req)) });
+  } catch (err) {
+    lmsError(res, err);
+  }
+});
+
+// Stream a course file through the backend (keeps the token server-side).
+app.get("/api/lms/download", async (req, res) => {
+  const fileUrl = (req.query.url || "").toString();
+  if (!fileUrl) return res.status(400).json({ ok: false, message: "No file URL." });
+  try {
+    await lms.proxyFile(lmsSession(req), fileUrl, res);
+  } catch (err) {
+    lmsError(res, err);
+  }
+});
+
 // SPA fallback.
 app.get("*", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
@@ -174,6 +274,7 @@ app.listen(CONFIG.port, "0.0.0.0", () => {
   console.log(`\n  ◆ JARVIS Web running on http://0.0.0.0:${CONFIG.port}`);
   console.log(
     `  AI: ${CONFIG.openaiKey ? "online" : "offline (built-in commands only)"} · ` +
-      `Weather: ${CONFIG.weatherKey ? "online" : "off"}\n`
+      `Weather: ${CONFIG.weatherKey ? "online" : "off"} · ` +
+      `LMS: ${CONFIG.lmsUrl}\n`
   );
 });

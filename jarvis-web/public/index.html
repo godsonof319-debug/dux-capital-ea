@@ -36,7 +36,8 @@
   <!-- Tab bar -->
   <nav class="tabbar" role="tablist">
     <button class="tab active" id="tabAssistant" role="tab" aria-selected="true" data-view="assistant">🎙️ Assistant</button>
-    <button class="tab" id="tabIum" role="tab" aria-selected="false" data-view="ium">🎓 IUM</button>
+    <button class="tab" id="tabPortal" role="tab" aria-selected="false" data-view="portal">📚 Portal</button>
+    <button class="tab" id="tabIum" role="tab" aria-selected="false" data-view="ium">🌐 Browser</button>
   </nav>
 
   <!-- ============ ASSISTANT VIEW ============ -->
@@ -120,6 +121,59 @@
       </div>
     </div>
   </div><!-- /view-ium -->
+
+  <!-- ============ PORTAL VIEW (LMS dashboard) ============ -->
+  <div class="view" id="view-portal">
+    <!-- Login card -->
+    <div class="lms-login" id="lmsLogin">
+      <div class="lms-login-card">
+        <span class="lms-logo">🎓</span>
+        <h2>IUM Student Portal</h2>
+        <p class="lms-sub" id="lmsSubtitle">Sign in with your own LMS credentials</p>
+        <form id="lmsLoginForm" autocomplete="on">
+          <label>Student number / username
+            <input id="lmsUser" type="text" autocomplete="username" required placeholder="e.g. 21234567" />
+          </label>
+          <label>Password
+            <input id="lmsPass" type="password" autocomplete="current-password" required placeholder="Your LMS password" />
+          </label>
+          <button class="send-btn lms-submit" type="submit" id="lmsSubmit">Sign in</button>
+          <p class="lms-msg" id="lmsMsg" role="alert"></p>
+        </form>
+        <p class="lms-privacy">
+          🔒 Your credentials are sent once to the server to obtain a secure token
+          via Moodle's official login. The token stays on the server — never in
+          your browser — and only your own data is ever retrieved.
+        </p>
+      </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div class="lms-dash" id="lmsDash" hidden>
+      <div class="lms-dash-head">
+        <div class="lms-user">
+          <span class="lms-avatar" id="lmsAvatar">🎓</span>
+          <div>
+            <strong id="lmsName">Student</strong>
+            <span class="lms-site" id="lmsSite"></span>
+          </div>
+        </div>
+        <button class="wv-btn ghost" id="lmsLogout" title="Sign out">Sign out</button>
+      </div>
+
+      <div class="lms-subtabs" id="lmsSubtabs">
+        <button class="lms-subtab active" data-panel="courses">📘 Courses</button>
+        <button class="lms-subtab" data-panel="assignments">📝 Assignments</button>
+        <button class="lms-subtab" data-panel="calendar">📅 Upcoming</button>
+      </div>
+
+      <div class="lms-panels">
+        <div class="lms-panel active" id="panel-courses"><div class="lms-loading">Loading…</div></div>
+        <div class="lms-panel" id="panel-assignments"><div class="lms-loading">Loading…</div></div>
+        <div class="lms-panel" id="panel-calendar"><div class="lms-loading">Loading…</div></div>
+      </div>
+    </div>
+  </div><!-- /view-portal -->
 
   <script src="/app.js"></script>
 </body>

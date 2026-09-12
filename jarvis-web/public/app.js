@@ -567,9 +567,13 @@
   el.clearBtn.addEventListener("click", () => { el.chat.innerHTML = ""; });
   el.wakeChip.addEventListener("click", () => setWake(!state.wakeOn));
 
-  // ------------------------------------------------------------ tabs (IUM)
+  // ------------------------------------------------------------ tabs
   const tabs = document.querySelectorAll(".tab");
-  const views = { assistant: document.getElementById("view-assistant"), ium: document.getElementById("view-ium") };
+  const views = {
+    assistant: document.getElementById("view-assistant"),
+    portal: document.getElementById("view-portal"),
+    ium: document.getElementById("view-ium"),
+  };
   function switchView(name) {
     tabs.forEach((t) => {
       const on = t.dataset.view === name;
@@ -577,6 +581,7 @@
       t.setAttribute("aria-selected", on ? "true" : "false");
     });
     Object.entries(views).forEach(([k, v]) => v && v.classList.toggle("active", k === name));
+    if (name === "portal") lms.onOpen();
   }
   tabs.forEach((t) => t.addEventListener("click", () => switchView(t.dataset.view)));
 
@@ -675,6 +680,245 @@
     hist.push(HOME); idx = 0; syncButtons(); showLoading(true);
 
     return { load, HOME };
+  })();
+
+  // ------------------------------------------------------------ LMS portal
+  const lms = (() => {
+    const SKEY = "jarvis_lms_session";
+    const loginBox = document.getElementById("lmsLogin");
+    const dash = document.getElementById("lmsDash");
+    const form = document.getElementById("lmsLoginForm");
+    const userIn = document.getElementById("lmsUser");
+    const passIn = document.getElementById("lmsPass");
+    const submit = document.getElementById("lmsSubmit");
+    const msg = document.getElementById("lmsMsg");
+    const nameEl = document.getElementById("lmsName");
+    const siteEl = document.getElementById("lmsSite");
+    const avatar = document.getElementById("lmsAvatar");
+    const logoutBtn = document.getElementById("lmsLogout");
+    const subtabs = document.querySelectorAll(".lms-subtab");
+    const panels = {
+      courses: document.getElementById("panel-courses"),
+      assignments: document.getElementById("panel-assignments"),
+      calendar: document.getElementById("panel-calendar"),
+    };
+    let sessionId = localStorage.getItem(SKEY) || "";
+    let loadedOnce = false;
+    const loaded = { courses: false, assignments: false, calendar: false };
+
+    if (!form) return { onOpen() {} };
+
+    function h(html) { return html; }
+    function esc(s) { return (s || "").toString().replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+    async function api(path, opts = {}) {
+      const headers = Object.assign({ "x-lms-session": sessionId }, opts.headers || {});
+      const r = await fetch(path, Object.assign({}, opts, { headers }));
+      const data = await r.json().catch(() => ({ ok: false, message: "Bad response." }));
+      if (r.status === 401) { showLogin("Your session expired. Please sign in again."); }
+      return data;
+    }
+
+    function showLogin(text) {
+      sessionId = ""; localStorage.removeItem(SKEY);
+      loadedOnce = false; loaded.courses = loaded.assignments = loaded.calendar = false;
+      dash.hidden = true; loginBox.hidden = false;
+      if (text) { msg.textContent = text; msg.classList.remove("ok"); }
+    }
+    function showDash(user) {
+      loginBox.hidden = true; dash.hidden = false;
+      nameEl.textContent = user?.fullname || "Student";
+      siteEl.textContent = user?.sitename || "";
+      if (user?.userpictureurl) {
+        avatar.textContent = "";
+        avatar.style.backgroundImage = `url("${user.userpictureurl}")`;
+      }
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      msg.textContent = "Signing in…"; msg.classList.remove("ok");
+      submit.disabled = true;
+      try {
+        const r = await fetch("/api/lms/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: userIn.value.trim(), password: passIn.value }),
+        });
+        const data = await r.json();
+        if (!data.ok) { msg.textContent = data.message || "Login failed."; submit.disabled = false; return; }
+        sessionId = data.sessionId;
+        localStorage.setItem(SKEY, sessionId);
+        passIn.value = "";
+        msg.textContent = ""; 
+        showDash(data.user);
+        loadPanel("courses");
+      } catch (err) {
+        msg.textContent = "Couldn't reach the server: " + err.message;
+      } finally {
+        submit.disabled = false;
+      }
+    });
+
+    logoutBtn.addEventListener("click", async () => {
+      try { await api("/api/lms/logout", { method: "POST" }); } catch (_) {}
+      showLogin("");
+      msg.textContent = "You've been signed out."; msg.classList.add("ok");
+    });
+
+    subtabs.forEach((t) => t.addEventListener("click", () => {
+      subtabs.forEach((x) => x.classList.toggle("active", x === t));
+      Object.entries(panels).forEach(([k, p]) => p.classList.toggle("active", k === t.dataset.panel));
+      loadPanel(t.dataset.panel);
+    }));
+
+    function fmtDate(ts) {
+      if (!ts) return "";
+      return new Date(ts * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    }
+    function dueLabel(ts) {
+      if (!ts) return "No due date";
+      const diff = ts * 1000 - Date.now();
+      const days = Math.round(diff / 86400000);
+      const soon = diff > 0 && days <= 3;
+      const txt = diff < 0 ? "Overdue · " + fmtDate(ts) : "Due " + fmtDate(ts);
+      return `<span class="lms-due ${soon || diff < 0 ? "soon" : ""}">${txt}</span>`;
+    }
+
+    async function loadPanel(name) {
+      if (loaded[name]) return;
+      const panel = panels[name];
+      panel.innerHTML = '<div class="lms-loading">Loading…</div>';
+      try {
+        if (name === "courses") await renderCourses(panel);
+        else if (name === "assignments") await renderAssignments(panel);
+        else if (name === "calendar") await renderCalendar(panel);
+        loaded[name] = true;
+      } catch (err) {
+        panel.innerHTML = `<div class="lms-empty">${esc(err.message)}</div>`;
+      }
+    }
+
+    async function renderCourses(panel) {
+      const data = await api("/api/lms/courses");
+      if (!data.ok) throw new Error(data.message);
+      if (!data.courses.length) { panel.innerHTML = '<div class="lms-empty">No courses found.</div>'; return; }
+      panel.innerHTML = "";
+      data.courses.forEach((c) => {
+        const card = document.createElement("div");
+        card.className = "lms-card click";
+        const prog = c.progress != null ? `<div class="bar"><span style="width:${Math.round(c.progress)}%"></span></div>` : "";
+        card.innerHTML = h(`<h4>${esc(c.fullname)}</h4><div class="meta">${esc(c.shortname)}</div>${prog}`);
+        card.addEventListener("click", () => openCourse(panel, c));
+        panel.appendChild(card);
+      });
+    }
+
+    async function openCourse(panel, course) {
+      panel.innerHTML = '<div class="lms-loading">Loading course…</div>';
+      const data = await api(`/api/lms/courses/${course.id}/contents`);
+      if (!data.ok) { panel.innerHTML = `<div class="lms-empty">${esc(data.message)}</div>`; return; }
+      panel.innerHTML = "";
+      const back = document.createElement("button");
+      back.className = "lms-back"; back.textContent = "‹ Back to courses";
+      back.addEventListener("click", () => { loaded.courses = false; loadPanel("courses"); });
+      panel.appendChild(back);
+      const title = document.createElement("div");
+      title.className = "lms-card";
+      title.innerHTML = `<h4>${esc(course.fullname)}</h4><div class="meta">${esc(course.shortname)}</div>`;
+      panel.appendChild(title);
+
+      data.sections.forEach((sec) => {
+        if (!sec.modules.length) return;
+        const s = document.createElement("div");
+        s.className = "lms-section";
+        s.innerHTML = `<div class="sname">${esc(sec.name || "Section")}</div>`;
+        sec.modules.forEach((m) => {
+          const row = document.createElement("div");
+          row.className = "lms-mod";
+          const icon = m.modicon ? `<img class="micon" src="${esc(m.modicon)}" alt="">` : `<span class="micon">📄</span>`;
+          row.innerHTML = `${icon}<span class="mname">${esc(m.name)}</span>`;
+          const file = (m.contents || []).find((f) => f.type === "file" && f.fileurl);
+          if (file) {
+            const a = document.createElement("a");
+            a.className = "dl"; a.textContent = "Download";
+            a.href = `/api/lms/download?url=${encodeURIComponent(file.fileurl)}`;
+            a.setAttribute("download", file.filename || "");
+            // send session header via fetch-download to keep token server-side
+            a.addEventListener("click", (ev) => { ev.preventDefault(); downloadFile(file); });
+            row.appendChild(a);
+          } else if (m.url) {
+            const a = document.createElement("a");
+            a.className = "dl"; a.textContent = "Open"; a.href = m.url; a.target = "_blank"; a.rel = "noopener";
+            row.appendChild(a);
+          }
+          s.appendChild(row);
+        });
+        panel.appendChild(s);
+      });
+    }
+
+    async function downloadFile(file) {
+      try {
+        const r = await fetch(`/api/lms/download?url=${encodeURIComponent(file.fileurl)}`, {
+          headers: { "x-lms-session": sessionId },
+        });
+        if (!r.ok) { alert("Download failed."); return; }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = file.filename || "download";
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+      } catch (err) {
+        alert("Download error: " + err.message);
+      }
+    }
+
+    async function renderAssignments(panel) {
+      const data = await api("/api/lms/assignments");
+      if (!data.ok) throw new Error(data.message);
+      if (!data.assignments.length) { panel.innerHTML = '<div class="lms-empty">No assignments found.</div>'; return; }
+      panel.innerHTML = "";
+      data.assignments.forEach((a) => {
+        const card = document.createElement("div");
+        card.className = "lms-card";
+        card.innerHTML = `<h4>${esc(a.name)}</h4><div class="meta">${esc(a.course)}</div><div class="meta" style="margin-top:6px">${dueLabel(a.duedate)}</div>`;
+        panel.appendChild(card);
+      });
+    }
+
+    async function renderCalendar(panel) {
+      const data = await api("/api/lms/calendar");
+      if (!data.ok) throw new Error(data.message);
+      if (!data.events.length) { panel.innerHTML = '<div class="lms-empty">Nothing upcoming.</div>'; return; }
+      panel.innerHTML = "";
+      data.events.forEach((e) => {
+        const card = document.createElement("div");
+        card.className = "lms-card";
+        card.innerHTML = `<h4>${esc(e.name)}</h4><div class="meta">${e.course ? esc(e.course) + " · " : ""}${fmtDate(e.timestart)}</div>`;
+        panel.appendChild(card);
+      });
+    }
+
+    async function onOpen() {
+      // Configure the login subtitle from the server's LMS URL.
+      try {
+        const info = await (await fetch("/api/lms/info")).json();
+        const host = info.lmsUrl ? new URL(info.lmsUrl).host : "";
+        const sub = document.getElementById("lmsSubtitle");
+        if (sub && host) sub.textContent = `Sign in to ${host} with your own credentials`;
+      } catch (_) {}
+      if (loadedOnce) return;
+      loadedOnce = true;
+      if (sessionId) {
+        const me = await api("/api/lms/me");
+        if (me.ok) { showDash(me.user); loadPanel("courses"); return; }
+      }
+      showLogin("");
+    }
+
+    return { onOpen };
   })();
 
   // ------------------------------------------------------------ suggestions
