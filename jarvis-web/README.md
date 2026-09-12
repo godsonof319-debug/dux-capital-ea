@@ -23,9 +23,12 @@ Inspired by Iron Man's J.A.R.V.I.S. with a neon aesthetic.
 - 🌦️ **Live weather** (via the server) and 📚 **Wikipedia** lookups.
 - 📱 **Responsive** — works on desktop and mobile.
 - 🕹️ **Suggestion chips** to get started fast.
-- 🎓 **IUM tab** — a second tab that embeds the **International University of
-  Management** e-Learning portal (elearn.ium.edu.na) with reload / open-in-new-tab
-  controls and a graceful fallback link if the site blocks embedding.
+- 🎓 **IUM tab** — an **in-app browser (webview)** for the **International
+  University of Management**. It has real browser chrome (back / forward /
+  reload / home), an editable **address bar**, and quick-link bookmarks that step
+  from the **IUM Portal** (elearn.ium.edu.na) to the **official IUM website**
+  (ium.edu.na) and the **portal login**. A loading spinner and a graceful
+  "open in a new tab" fallback handle sites that block embedding.
 
 > **Browser support:** voice input uses the Web Speech API, best in
 > **Chrome/Edge** (and Safari). If a browser lacks it, Jarvis automatically

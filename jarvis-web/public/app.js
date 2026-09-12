@@ -580,23 +580,102 @@
   }
   tabs.forEach((t) => t.addEventListener("click", () => switchView(t.dataset.view)));
 
-  // IUM iframe reload + embed-block fallback.
-  const iumFrame = document.getElementById("iumFrame");
-  const iumFallback = document.getElementById("iumFallback");
-  const iumReload = document.getElementById("iumReload");
-  if (iumReload && iumFrame) {
-    iumReload.addEventListener("click", () => {
-      if (iumFallback) iumFallback.hidden = true;
-      // eslint-disable-next-line no-self-assign
-      iumFrame.src = iumFrame.src;
+  // ------------------------------------------------------------ IUM webview
+  const wv = (() => {
+    const frame = document.getElementById("iumFrame");
+    if (!frame) return null;
+    const addr = document.getElementById("wvAddress");
+    const addrForm = document.getElementById("wvAddressForm");
+    const lock = document.getElementById("wvLock");
+    const btnBack = document.getElementById("wvBack");
+    const btnFwd = document.getElementById("wvFwd");
+    const btnReload = document.getElementById("wvReload");
+    const btnHome = document.getElementById("wvHome");
+    const btnOpen = document.getElementById("wvOpen");
+    const loading = document.getElementById("wvLoading");
+    const fallback = document.getElementById("iumFallback");
+    const fbHost = document.getElementById("wvFallbackHost");
+    const fbOpen = document.getElementById("wvFallbackOpen");
+    const bookmarks = Array.from(document.querySelectorAll(".wv-bm"));
+    const HOME = "https://elearn.ium.edu.na/";
+
+    // Our own history stack (cross-origin iframes hide their internal history).
+    const hist = [];
+    let idx = -1;
+    let loadTimer = null;
+
+    function normalize(input) {
+      let u = (input || "").trim();
+      if (!u) return null;
+      if (!/^https?:\/\//i.test(u)) {
+        // treat a lone term as a search, a dotted token as a domain
+        if (/\s/.test(u) || !/\./.test(u)) {
+          return "https://www.google.com/search?q=" + encodeURIComponent(u);
+        }
+        u = "https://" + u;
+      }
+      try { return new URL(u).href; } catch { return null; }
+    }
+
+    function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } }
+
+    function syncButtons() {
+      btnBack.disabled = idx <= 0;
+      btnFwd.disabled = idx >= hist.length - 1;
+      const cur = hist[idx] || "";
+      addr.value = cur;
+      lock.textContent = cur.startsWith("https://") ? "🔒" : "⚠️";
+      bookmarks.forEach((b) => b.classList.toggle("active", b.dataset.url === cur));
+    }
+
+    function showLoading(on) {
+      if (loading) loading.classList.toggle("hidden", !on);
+    }
+
+    function load(url, { push = true } = {}) {
+      const target = normalize(url);
+      if (!target) return;
+      if (fallback) fallback.hidden = true;
+      showLoading(true);
+      if (push) {
+        hist.splice(idx + 1); // drop forward entries
+        hist.push(target);
+        idx = hist.length - 1;
+      }
+      syncButtons();
+      frame.src = target;
+
+      // Detect embed blocking: if onload never fires, assume X-Frame-Options/CSP.
+      clearTimeout(loadTimer);
+      loadTimer = setTimeout(() => {
+        showLoading(false);
+        if (fallback) {
+          if (fbHost) fbHost.textContent = hostOf(target);
+          if (fbOpen) fbOpen.href = target;
+          fallback.hidden = false;
+        }
+      }, 7000);
+    }
+
+    frame.addEventListener("load", () => {
+      clearTimeout(loadTimer);
+      showLoading(false);
+      if (fallback) fallback.hidden = true;
     });
-  }
-  // If the portal refuses to be embedded, show the fallback after a grace period.
-  if (iumFrame && iumFallback) {
-    let loaded = false;
-    iumFrame.addEventListener("load", () => { loaded = true; iumFallback.hidden = true; });
-    setTimeout(() => { if (!loaded) iumFallback.hidden = false; }, 6000);
-  }
+
+    addrForm.addEventListener("submit", (e) => { e.preventDefault(); load(addr.value); addr.blur(); });
+    btnReload.addEventListener("click", () => { if (hist[idx]) load(hist[idx], { push: false }); });
+    btnHome.addEventListener("click", () => load(HOME));
+    btnOpen.addEventListener("click", () => window.open(hist[idx] || HOME, "_blank", "noopener"));
+    btnBack.addEventListener("click", () => { if (idx > 0) { idx--; load(hist[idx], { push: false }); } });
+    btnFwd.addEventListener("click", () => { if (idx < hist.length - 1) { idx++; load(hist[idx], { push: false }); } });
+    bookmarks.forEach((b) => b.addEventListener("click", () => load(b.dataset.url)));
+
+    // Seed history with the initial iframe src.
+    hist.push(HOME); idx = 0; syncButtons(); showLoading(true);
+
+    return { load, HOME };
+  })();
 
   // ------------------------------------------------------------ suggestions
   const SUGGESTIONS = [

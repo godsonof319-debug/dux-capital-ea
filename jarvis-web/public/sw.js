@@ -2,7 +2,7 @@
    Network-first for API calls (always fresh), cache-first for static assets so
    the UI loads instantly and works offline. */
 
-const CACHE = "jarvis-v2";
+const CACHE = "jarvis-v3";
 const SHELL = [
   "/",
   "/index.html",
