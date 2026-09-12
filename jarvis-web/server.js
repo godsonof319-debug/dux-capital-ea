@@ -6,7 +6,9 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
+import multer from "multer";
 import * as lms from "./lms.js";
+import * as admin from "./admin.js";
 
 dotenv.config();
 
@@ -24,7 +26,18 @@ const CONFIG = {
   // Moodle LMS base URL (e.g. https://elearn.ium.edu.na). Configurable so this
   // works for any Moodle site, not just IUM.
   lmsUrl: (process.env.LMS_URL || "https://elearn.ium.edu.na").trim(),
+  // Admin passphrase for managing your app's own resources. Admin is DISABLED
+  // unless this is set.
+  adminPassword: (process.env.ADMIN_PASSWORD || "").trim(),
+  dataDir: path.join(__dirname, "data"),
 };
+
+// Initialize the admin side (file storage + JSON db).
+admin.init({ dataDir: CONFIG.dataDir, adminPassword: CONFIG.adminPassword });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
+});
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -265,6 +278,111 @@ app.get("/api/lms/download", async (req, res) => {
   }
 });
 
+// ================================================================ ADMIN
+// Manages your OWN app's content (modules, resources, announcements). Separate
+// from the Moodle LMS. Protected by ADMIN_PASSWORD; disabled if it's unset.
+
+function adminToken(req) {
+  return (req.get("x-admin-token") || "").trim();
+}
+function guardAdmin(req, res, next) {
+  try {
+    admin.requireAdmin(adminToken(req));
+    next();
+  } catch (err) {
+    res.status(err.status || 401).json({ ok: false, message: err.message });
+  }
+}
+function sendAdminErr(res, err) {
+  res.status(err.status || 400).json({ ok: false, message: err.message || "Admin error." });
+}
+
+app.get("/api/admin/status", (_req, res) => {
+  res.json({ ok: true, enabled: admin.enabled() });
+});
+
+app.post("/api/admin/login", (req, res) => {
+  try {
+    const token = admin.login((req.body || {}).password || "");
+    res.json({ ok: true, token });
+  } catch (err) {
+    sendAdminErr(res, err);
+  }
+});
+
+app.post("/api/admin/logout", (req, res) => {
+  admin.logout(adminToken(req));
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/overview", guardAdmin, (_req, res) => {
+  res.json({
+    ok: true,
+    stats: admin.stats(),
+    modules: admin.listModules(),
+    announcements: admin.listAnnouncements(),
+  });
+});
+
+// Modules
+app.get("/api/admin/modules", guardAdmin, (_req, res) => res.json({ ok: true, modules: admin.listModules() }));
+app.post("/api/admin/modules", guardAdmin, (req, res) => {
+  try { res.json({ ok: true, module: admin.addModule(req.body || {}) }); }
+  catch (err) { sendAdminErr(res, err); }
+});
+app.put("/api/admin/modules/:id", guardAdmin, (req, res) => {
+  try { res.json({ ok: true, module: admin.updateModule(req.params.id, req.body || {}) }); }
+  catch (err) { sendAdminErr(res, err); }
+});
+app.delete("/api/admin/modules/:id", guardAdmin, (req, res) => {
+  try { res.json(admin.deleteModule(req.params.id)); }
+  catch (err) { sendAdminErr(res, err); }
+});
+
+// Resources
+app.get("/api/admin/resources", guardAdmin, (req, res) =>
+  res.json({ ok: true, resources: admin.listResources(req.query.moduleId) })
+);
+app.post("/api/admin/resources", guardAdmin, upload.single("file"), (req, res) => {
+  try {
+    const resource = admin.addResource({
+      moduleId: (req.body || {}).moduleId,
+      title: (req.body || {}).title,
+      file: req.file,
+    });
+    res.json({ ok: true, resource });
+  } catch (err) {
+    sendAdminErr(res, err);
+  }
+});
+app.delete("/api/admin/resources/:id", guardAdmin, (req, res) => {
+  try { res.json(admin.deleteResource(req.params.id)); }
+  catch (err) { sendAdminErr(res, err); }
+});
+
+// Announcements
+app.post("/api/admin/announcements", guardAdmin, (req, res) => {
+  try { res.json({ ok: true, announcement: admin.addAnnouncement(req.body || {}) }); }
+  catch (err) { sendAdminErr(res, err); }
+});
+app.delete("/api/admin/announcements/:id", guardAdmin, (req, res) => {
+  try { res.json(admin.deleteAnnouncement(req.params.id)); }
+  catch (err) { sendAdminErr(res, err); }
+});
+
+// ---- Public (student-facing) catalog + downloads ----
+app.get("/api/resources/catalog", (_req, res) => {
+  res.json({ ok: true, ...admin.publicCatalog() });
+});
+app.get("/api/resources/:id/download", (req, res) => {
+  try {
+    const f = admin.getResourceFile(req.params.id, { count: true });
+    res.download(f.path, f.filename);
+  } catch (err) {
+    res.status(err.status || 404).json({ ok: false, message: err.message });
+  }
+});
+
 // SPA fallback.
 app.get("*", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
@@ -275,6 +393,7 @@ app.listen(CONFIG.port, "0.0.0.0", () => {
   console.log(
     `  AI: ${CONFIG.openaiKey ? "online" : "offline (built-in commands only)"} · ` +
       `Weather: ${CONFIG.weatherKey ? "online" : "off"} · ` +
-      `LMS: ${CONFIG.lmsUrl}\n`
+      `LMS: ${CONFIG.lmsUrl} · ` +
+      `Admin: ${admin.enabled() ? "enabled" : "disabled (set ADMIN_PASSWORD)"}\n`
   );
 });

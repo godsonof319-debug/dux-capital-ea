@@ -189,6 +189,10 @@
       return data.ok ? data.text : data.message;
     }
 
+    // ---- LMS (school portal) ----
+    const lmsRes = await tryLms(text, t);
+    if (lmsRes !== null) return lmsRes;
+
     // ---- notes ----
     const noteRes = tryNotes(text, t);
     if (noteRes !== null) return noteRes;
@@ -233,7 +237,7 @@
     if (/\b(your name|who are you|what are you)\b/.test(t))
       return `I am ${state.assistantName}, your personal assistant, ${state.userName}.`;
     if (/\b(what can you do|help|commands|capabilities)\b/.test(t))
-      return "I can tell the time and date, do math, check the weather, look things up on Wikipedia, search the web, open sites, play music, take notes, set timers, tell jokes, and chat with you. Just ask.";
+      return "I can tell the time and date, do math, check the weather, look things up on Wikipedia, search the web, open sites, play music, take notes, set timers, tell jokes, and chat. I'm also linked to your student portal — ask me about your courses, assignments, grades, or what's due this week. Just ask.";
 
     // ---- greetings (quick offline replies) ----
     if (/^(hi|hello|hey|greetings|yo)\b/.test(t)) return `Hello ${state.userName}. How can I help?`;
@@ -320,6 +324,112 @@
       notes.length = 0;
       saveNotes();
       return `Cleared ${n} note${n === 1 ? "" : "s"}.`;
+    }
+    return null;
+  }
+
+  // ---- LMS voice/chat intents ----
+  function fmtWhen(ts) {
+    if (!ts) return "no due date";
+    const d = new Date(ts * 1000);
+    const diffDays = Math.round((d - Date.now()) / 86400000);
+    const date = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    if (diffDays < 0) return `overdue (was ${date})`;
+    if (diffDays === 0) return `today (${date})`;
+    if (diffDays === 1) return `tomorrow (${date})`;
+    return `${date} (in ${diffDays} days)`;
+  }
+
+  async function tryLms(text, t) {
+    // Detect an LMS-related question.
+    const mentionsLms = /\b(lms|portal|moodle|e-?learn|elearn)\b/.test(t);
+    const wantsCourses = /\b(my )?(courses|modules|subjects|classes)\b/.test(t);
+    const wantsAssign = /\b(assignment|assignments|homework|due|deadline|submission)s?\b/.test(t);
+    const wantsGrades = /\b(grade|grades|mark|marks|result|results|score|scores)\b/.test(t);
+    const wantsEvents = /\b(upcoming|calendar|event|events|schedule|what('| i)?s? on)\b/.test(t);
+    const wantsLogin = /\b(log ?in|sign ?in|open (the )?(portal|lms))\b/.test(t) && mentionsLms || /\bopen (the )?portal\b/.test(t);
+
+    if (wantsLogin) { lms.focusPortal(); return "Opening the student portal for you."; }
+
+    const isLmsQuery = wantsCourses || wantsAssign || wantsGrades || wantsEvents || (mentionsLms && /\b(show|list|what|check)\b/.test(t));
+    if (!isLmsQuery) return null;
+
+    if (!lms.isLoggedIn()) {
+      lms.focusPortal();
+      return "You'll need to sign in to the student portal first. I've opened it for you.";
+    }
+
+    try {
+      // Grades
+      if (wantsGrades) {
+        const cs = await lms.qCourses();
+        if (!cs.ok) return cs.message || "I couldn't reach the portal.";
+        if (!cs.courses.length) return "You have no courses to show grades for.";
+        // If a course name is mentioned, target it; else summarize the first/only.
+        let course = cs.courses.find((c) =>
+          t.includes((c.shortname || "").toLowerCase()) ||
+          (c.fullname && t.includes(c.fullname.toLowerCase().split(/\s+/).slice(0, 2).join(" ")))
+        );
+        if (!course && cs.courses.length === 1) course = cs.courses[0];
+        if (!course) {
+          lms.focusPortal();
+          return `You have ${cs.courses.length} courses. Open the Grades tab and pick one, or say "grades for" and the course name.`;
+        }
+        const g = await lms.qGrades(course.id);
+        if (!g.ok) return g.message;
+        const total = (g.grades || []).find((x) => x.itemtype === "course");
+        const items = (g.grades || []).filter((x) => x.itemname && x.grade && x.grade !== "-");
+        if (total && total.grade && total.grade !== "-") {
+          return `Your overall grade in ${course.shortname} is ${total.grade}${total.percentage && total.percentage !== "-" ? " (" + total.percentage + ")" : ""}.`;
+        }
+        if (items.length) {
+          const top = items.slice(0, 3).map((x) => `${x.itemname}: ${x.grade}`).join("; ");
+          return `In ${course.shortname}: ${top}.`;
+        }
+        return `No grades are posted yet for ${course.shortname}.`;
+      }
+
+      // Assignments / what's due
+      if (wantsAssign) {
+        const a = await lms.qAssignments();
+        if (!a.ok) return a.message;
+        let list = a.assignments || [];
+        if (!list.length) return "You have no assignments listed. Nice.";
+        // "this week" filter
+        if (/\bthis week\b/.test(t)) {
+          const weekEnd = Date.now() + 7 * 86400000;
+          list = list.filter((x) => x.duedate && x.duedate * 1000 >= Date.now() && x.duedate * 1000 <= weekEnd);
+          if (!list.length) return "Nothing is due this week. You're clear.";
+        } else {
+          // default: upcoming (not overdue), soonest first
+          const upcoming = list.filter((x) => x.duedate && x.duedate * 1000 >= Date.now());
+          if (upcoming.length) list = upcoming;
+        }
+        const top = list.slice(0, 4).map((x) => `${x.name} (${x.course}) — ${fmtWhen(x.duedate)}`).join("; ");
+        const more = list.length > 4 ? ` And ${list.length - 4} more.` : "";
+        return `You have ${list.length} assignment${list.length === 1 ? "" : "s"}: ${top}.${more}`;
+      }
+
+      // Upcoming events
+      if (wantsEvents) {
+        const e = await lms.qCalendar();
+        if (!e.ok) return e.message;
+        if (!e.events.length) return "Nothing upcoming on your calendar.";
+        const top = e.events.slice(0, 4).map((x) => `${x.name}${x.course ? " (" + x.course + ")" : ""} — ${fmtWhen(x.timestart)}`).join("; ");
+        return `Coming up: ${top}.`;
+      }
+
+      // Courses
+      if (wantsCourses) {
+        const c = await lms.qCourses();
+        if (!c.ok) return c.message;
+        if (!c.courses.length) return "You're not enrolled in any courses.";
+        const names = c.courses.slice(0, 6).map((x) => x.fullname).join("; ");
+        const more = c.courses.length > 6 ? ` …and ${c.courses.length - 6} more.` : "";
+        return `You have ${c.courses.length} course${c.courses.length === 1 ? "" : "s"}: ${names}.${more}`;
+      }
+    } catch (err) {
+      return "I had trouble reaching the portal: " + err.message;
     }
     return null;
   }
@@ -572,7 +682,9 @@
   const views = {
     assistant: document.getElementById("view-assistant"),
     portal: document.getElementById("view-portal"),
+    resources: document.getElementById("view-resources"),
     ium: document.getElementById("view-ium"),
+    admin: document.getElementById("view-admin"),
   };
   function switchView(name) {
     tabs.forEach((t) => {
@@ -582,6 +694,8 @@
     });
     Object.entries(views).forEach(([k, v]) => v && v.classList.toggle("active", k === name));
     if (name === "portal") lms.onOpen();
+    if (name === "resources") resources.onOpen();
+    if (name === "admin") adminUI.onOpen();
   }
   tabs.forEach((t) => t.addEventListener("click", () => switchView(t.dataset.view)));
 
@@ -973,14 +1087,310 @@
       showLogin("");
     }
 
-    return { onOpen };
+    // ---- Queries the AI assistant can call ----
+    function isLoggedIn() { return Boolean(sessionId); }
+    async function qCourses() { return api("/api/lms/courses"); }
+    async function qAssignments() { return api("/api/lms/assignments"); }
+    async function qCalendar() { return api("/api/lms/calendar"); }
+    async function qGrades(courseId) { return api(`/api/lms/courses/${courseId}/grades`); }
+    function focusPortal() { switchView("portal"); }
+
+    return { onOpen, isLoggedIn, qCourses, qAssignments, qCalendar, qGrades, focusPortal };
+  })();
+
+  // ------------------------------------------------------------ shared helpers
+  function escHtml(s) {
+    return (s || "").toString().replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+  function fmtSize(bytes) {
+    if (!bytes && bytes !== 0) return "";
+    const u = ["B", "KB", "MB", "GB"];
+    let i = 0, n = bytes;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
+  }
+
+  // ------------------------------------------------------------ Resources (student)
+  const resources = (() => {
+    const modulesEl = document.getElementById("resModules");
+    const announceEl = document.getElementById("resAnnounce");
+    const refreshBtn = document.getElementById("resRefresh");
+    if (!modulesEl) return { onOpen() {} };
+    let loaded = false;
+
+    async function render() {
+      modulesEl.innerHTML = '<div class="lms-loading">Loading…</div>';
+      announceEl.innerHTML = "";
+      let data;
+      try {
+        data = await (await fetch("/api/resources/catalog")).json();
+      } catch (err) {
+        modulesEl.innerHTML = `<div class="lms-empty">Couldn't load resources.</div>`;
+        return;
+      }
+      // Announcements
+      (data.announcements || []).forEach((a) => {
+        const d = document.createElement("div");
+        d.className = "ann";
+        d.innerHTML = `<h4>📢 ${escHtml(a.title || "Announcement")}</h4>` +
+          (a.body ? `<div class="body">${escHtml(a.body)}</div>` : "") +
+          `<div class="when">${new Date(a.created).toLocaleString()}</div>`;
+        announceEl.appendChild(d);
+      });
+      // Modules + resources
+      const mods = (data.modules || []).filter((m) => m.resources.length);
+      if (!mods.length && !(data.announcements || []).length) {
+        modulesEl.innerHTML = `<div class="lms-empty">No resources have been published yet.</div>`;
+        return;
+      }
+      modulesEl.innerHTML = "";
+      mods.forEach((m) => {
+        const wrap = document.createElement("div");
+        wrap.className = "res-module";
+        wrap.innerHTML = `<div class="rm-title">📘 ${escHtml(m.title)}${m.code ? `<span class="code">${escHtml(m.code)}</span>` : ""}</div>`;
+        m.resources.forEach((r) => {
+          const row = document.createElement("div");
+          row.className = "adm-row";
+          row.innerHTML =
+            `<div class="info"><strong>${escHtml(r.title)}</strong>` +
+            `<div class="meta">${escHtml(r.filename)} · ${fmtSize(r.size)}</div></div>` +
+            `<a class="dl" href="/api/resources/${r.id}/download">Download</a>`;
+          wrap.appendChild(row);
+        });
+        modulesEl.appendChild(wrap);
+      });
+    }
+
+    if (refreshBtn) refreshBtn.addEventListener("click", render);
+    return {
+      onOpen() { if (!loaded) { loaded = true; render(); } },
+      refresh() { render(); },
+    };
+  })();
+
+  // ------------------------------------------------------------ Admin console
+  const adminUI = (() => {
+    const TKEY = "jarvis_admin_token";
+    const tabBtn = document.getElementById("tabAdmin");
+    const loginBox = document.getElementById("admLogin");
+    const dash = document.getElementById("admDash");
+    const loginForm = document.getElementById("admLoginForm");
+    const passIn = document.getElementById("admPass");
+    const msg = document.getElementById("admMsg");
+    const statLine = document.getElementById("admStatLine");
+    const logoutBtn = document.getElementById("admLogout");
+    const subtabs = document.querySelectorAll("[data-apanel]");
+    if (!loginForm) return { onOpen() {}, revealTab() {} };
+
+    let token = localStorage.getItem(TKEY) || "";
+    let modules = [];
+
+    async function api(path, opts = {}) {
+      const headers = Object.assign({ "x-admin-token": token }, opts.headers || {});
+      const r = await fetch(path, Object.assign({}, opts, { headers }));
+      const data = await r.json().catch(() => ({ ok: false, message: "Bad response." }));
+      if (r.status === 401) showLogin("Session expired. Please sign in again.");
+      return data;
+    }
+    async function apiJson(path, method, body) {
+      return api(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    }
+
+    function showLogin(text) {
+      token = ""; localStorage.removeItem(TKEY);
+      dash.hidden = true; loginBox.hidden = false;
+      if (text) { msg.textContent = text; }
+    }
+    function showDash() { loginBox.hidden = true; dash.hidden = false; loadPanel("modules"); loadOverview(); }
+
+    async function revealTab() {
+      try {
+        const s = await (await fetch("/api/admin/status")).json();
+        if (s.enabled && tabBtn) tabBtn.hidden = false;
+      } catch (_) {}
+    }
+
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      msg.textContent = "Signing in…";
+      const r = await apiJson("/api/admin/login", "POST", { password: passIn.value });
+      if (!r.ok) { msg.textContent = r.message || "Login failed."; return; }
+      token = r.token; localStorage.setItem(TKEY, token);
+      passIn.value = ""; msg.textContent = "";
+      showDash();
+    });
+    logoutBtn.addEventListener("click", async () => { await api("/api/admin/logout", { method: "POST" }); showLogin("Signed out."); });
+
+    subtabs.forEach((t) => t.addEventListener("click", () => {
+      subtabs.forEach((x) => x.classList.toggle("active", x === t));
+      document.querySelectorAll("#view-admin .lms-panel").forEach((p) => p.classList.remove("active"));
+      document.getElementById("apanel-" + t.dataset.apanel).classList.add("active");
+      loadPanel(t.dataset.apanel);
+    }));
+
+    async function loadOverview() {
+      const d = await api("/api/admin/overview");
+      if (d.ok) statLine.textContent = `${d.stats.modules} modules · ${d.stats.resources} resources · ${d.stats.totalDownloads} downloads`;
+    }
+
+    async function loadPanel(name) {
+      if (name === "modules") return renderModules();
+      if (name === "resources") return renderResources();
+      if (name === "announce") return renderAnnounce();
+      if (name === "stats") return renderStats();
+    }
+
+    // Modules
+    document.getElementById("admModForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const code = document.getElementById("admModCode").value.trim();
+      const title = document.getElementById("admModTitle").value.trim();
+      if (!title) return;
+      const r = await apiJson("/api/admin/modules", "POST", { code, title });
+      if (r.ok) { e.target.reset(); renderModules(); loadOverview(); }
+      else alert(r.message);
+    });
+    async function renderModules() {
+      const list = document.getElementById("admModList");
+      list.innerHTML = '<div class="lms-loading">Loading…</div>';
+      const d = await api("/api/admin/modules");
+      if (!d.ok) { list.innerHTML = `<div class="lms-empty">${escHtml(d.message)}</div>`; return; }
+      modules = d.modules;
+      if (!modules.length) { list.innerHTML = '<div class="lms-empty">No modules yet. Add one above.</div>'; return; }
+      list.innerHTML = "";
+      modules.forEach((m) => {
+        const row = document.createElement("div");
+        row.className = "adm-row";
+        row.innerHTML = `<div class="info"><strong>${escHtml(m.title)}</strong><div class="meta">${escHtml(m.code || "—")} · ${m.resourceCount} resource${m.resourceCount === 1 ? "" : "s"}</div></div>`;
+        const del = document.createElement("button");
+        del.className = "del"; del.textContent = "Delete";
+        del.addEventListener("click", async () => {
+          if (!confirm(`Delete "${m.title}" and its resources?`)) return;
+          const r = await api(`/api/admin/modules/${m.id}`, { method: "DELETE" });
+          if (r.ok) { renderModules(); loadOverview(); } else alert(r.message);
+        });
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+    }
+
+    // Resources
+    document.getElementById("admResForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const moduleId = document.getElementById("admResModule").value;
+      const title = document.getElementById("admResTitle").value.trim();
+      const fileEl = document.getElementById("admResFile");
+      const rmsg = document.getElementById("admResMsg");
+      if (!fileEl.files[0]) { rmsg.textContent = "Choose a file."; return; }
+      const fd = new FormData();
+      fd.append("moduleId", moduleId);
+      fd.append("title", title);
+      fd.append("file", fileEl.files[0]);
+      rmsg.textContent = "Uploading…";
+      const r = await api("/api/admin/resources", { method: "POST", body: fd });
+      if (r.ok) { rmsg.textContent = "Uploaded."; e.target.reset(); populateModuleSelect(); renderResources(); loadOverview(); }
+      else rmsg.textContent = r.message || "Upload failed.";
+    });
+    function populateModuleSelect() {
+      const sel = document.getElementById("admResModule");
+      sel.innerHTML = modules.map((m) => `<option value="${m.id}">${escHtml(m.title)}</option>`).join("") ||
+        `<option value="" disabled>Create a module first</option>`;
+    }
+    async function renderResources() {
+      if (!modules.length) { const d = await api("/api/admin/modules"); if (d.ok) modules = d.modules; }
+      populateModuleSelect();
+      const list = document.getElementById("admResList");
+      list.innerHTML = '<div class="lms-loading">Loading…</div>';
+      const d = await api("/api/admin/resources");
+      if (!d.ok) { list.innerHTML = `<div class="lms-empty">${escHtml(d.message)}</div>`; return; }
+      if (!d.resources.length) { list.innerHTML = '<div class="lms-empty">No resources uploaded yet.</div>'; return; }
+      list.innerHTML = "";
+      d.resources.forEach((r) => {
+        const mod = modules.find((m) => m.id === r.moduleId);
+        const row = document.createElement("div");
+        row.className = "adm-row";
+        row.innerHTML =
+          `<div class="info"><strong>${escHtml(r.title)}</strong>` +
+          `<div class="meta">${escHtml(r.filename)} · ${fmtSize(r.size)}${mod ? " · " + escHtml(mod.title) : ""}</div></div>` +
+          `<span class="dl-badge">↓ ${r.downloads}</span>`;
+        const del = document.createElement("button");
+        del.className = "del"; del.textContent = "Delete";
+        del.addEventListener("click", async () => {
+          if (!confirm(`Delete "${r.title}"?`)) return;
+          const res = await api(`/api/admin/resources/${r.id}`, { method: "DELETE" });
+          if (res.ok) { renderResources(); loadOverview(); } else alert(res.message);
+        });
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+    }
+
+    // Announcements
+    document.getElementById("admAnnForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const title = document.getElementById("admAnnTitle").value.trim();
+      const body = document.getElementById("admAnnBody").value.trim();
+      if (!title && !body) return;
+      const r = await apiJson("/api/admin/announcements", "POST", { title, body });
+      if (r.ok) { e.target.reset(); renderAnnounce(); loadOverview(); } else alert(r.message);
+    });
+    async function renderAnnounce() {
+      const list = document.getElementById("admAnnList");
+      list.innerHTML = '<div class="lms-loading">Loading…</div>';
+      const d = await api("/api/admin/overview");
+      if (!d.ok) { list.innerHTML = `<div class="lms-empty">${escHtml(d.message)}</div>`; return; }
+      const anns = d.announcements || [];
+      if (!anns.length) { list.innerHTML = '<div class="lms-empty">No announcements yet.</div>'; return; }
+      list.innerHTML = "";
+      anns.forEach((a) => {
+        const row = document.createElement("div");
+        row.className = "adm-row";
+        row.innerHTML = `<div class="info"><strong>${escHtml(a.title || "Announcement")}</strong><div class="meta">${escHtml((a.body || "").slice(0, 80))}${(a.body || "").length > 80 ? "…" : ""} · ${new Date(a.created).toLocaleDateString()}</div></div>`;
+        const del = document.createElement("button");
+        del.className = "del"; del.textContent = "Delete";
+        del.addEventListener("click", async () => {
+          const r = await api(`/api/admin/announcements/${a.id}`, { method: "DELETE" });
+          if (r.ok) { renderAnnounce(); loadOverview(); } else alert(r.message);
+        });
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+    }
+
+    // Stats
+    async function renderStats() {
+      const box = document.getElementById("admStats");
+      box.innerHTML = '<div class="lms-loading">Loading…</div>';
+      const d = await api("/api/admin/overview");
+      if (!d.ok) { box.innerHTML = `<div class="lms-empty">${escHtml(d.message)}</div>`; return; }
+      const s = d.stats;
+      let html = `<div class="stat-grid">
+        <div class="stat-box"><div class="n">${s.modules}</div><div class="l">Modules</div></div>
+        <div class="stat-box"><div class="n">${s.resources}</div><div class="l">Resources</div></div>
+        <div class="stat-box"><div class="n">${s.totalDownloads}</div><div class="l">Downloads</div></div>
+        <div class="stat-box"><div class="n">${s.announcements}</div><div class="l">Announcements</div></div>
+      </div>`;
+      if (s.topDownloads && s.topDownloads.length) {
+        html += `<div class="rm-title" style="color:var(--pink-2);margin-bottom:8px">🔥 Most downloaded</div>`;
+        s.topDownloads.forEach((r) => {
+          html += `<div class="adm-row"><div class="info"><strong>${escHtml(r.title)}</strong><div class="meta">${escHtml(r.filename)}</div></div><span class="dl-badge">↓ ${r.downloads}</span></div>`;
+        });
+      }
+      box.innerHTML = html;
+    }
+
+    async function onOpen() {
+      if (token) { showDash(); } else { showLogin(""); }
+    }
+
+    return { onOpen, revealTab };
   })();
 
   // ------------------------------------------------------------ suggestions
   const SUGGESTIONS = [
+    "What's due this week?", "List my courses", "What are my grades?",
     "What time is it?", "Weather in Tokyo", "Tell me a joke",
-    "What is 15% of 240", "Play lofi beats", "Who is Nikola Tesla",
-    "Set a timer for 1 minute", "Flip a coin",
+    "What is 15% of 240", "Set a timer for 1 minute",
   ];
   SUGGESTIONS.forEach((s) => {
     const b = document.createElement("button");
@@ -1034,6 +1444,9 @@
     const voiceOK = Boolean(SR);
     el.chipVoice.textContent = "voice: " + (voiceOK ? "ready" : "type only");
     el.chipVoice.classList.add(voiceOK ? "on" : "off");
+
+    // Reveal the Admin tab only if the server has admin enabled.
+    adminUI.revealTab();
 
     const hour = new Date().getHours();
     const part = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
