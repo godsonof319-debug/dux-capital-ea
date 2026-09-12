@@ -20,6 +20,7 @@ So it works on *any* machine, right out of the box.
 | 🌦️ Weather | *"weather"*, *"what's the weather in Tokyo"* *(needs free API key)* |
 | 📚 Knowledge | *"who is Nikola Tesla"*, *"tell me about black holes"* (Wikipedia) |
 | 🔎 Web | *"search for best pizza recipe"*, *"google python tutorials"* |
+| 🎵 Music | *"play lofi beats"*, *"play Bohemian Rhapsody on spotify"*, *"pause"*, *"next track"*, *"volume up"* |
 | 🌐 Open sites | *"open youtube"*, *"open github"*, *"go to wikipedia"* |
 | 💻 Open apps | *"open calculator"*, *"open notepad"*, *"open terminal"* |
 | 📝 Notes | *"take a note buy milk"*, *"read my notes"*, *"clear notes"* |
@@ -100,6 +101,15 @@ Voice input needs PyAudio. If `pip install pyaudio` fails:
 
 No microphone? No problem — Jarvis automatically falls back to keyboard input.
 
+## 🎵 Media control notes
+
+- **Launch playback** (*"play lofi beats"*, *"play X on spotify"*) works everywhere —
+  it opens YouTube/Spotify in your browser (or the Spotify app on macOS).
+- **Transport control** (pause, next, previous, volume) uses your OS media keys via
+  `pynput` (`pip install pynput`). On Linux you can alternatively use `playerctl`
+  (`sudo apt install playerctl`) and `pactl` for volume; macOS uses AppleScript.
+  These control whatever player is currently active.
+
 ---
 
 ## 🧱 Project structure
@@ -114,6 +124,7 @@ jarvis/
 │   ├── speech.py        # text-to-speech + speech-to-text (with fallbacks)
 │   ├── brain.py         # OpenAI conversation (offline fallback included)
 │   ├── skills.py        # all built-in task commands
+│   ├── media.py         # music playback + media-key transport control
 │   └── assistant.py     # orchestration + main loops
 └── data/                # notes and local state (git-ignored)
 ```

@@ -17,3 +17,4 @@ openai>=1.30.0            # smart free-form answers (needs OPENAI_API_KEY)
 # ---- Nice to have ----
 wikipedia>=1.4.0          # quick encyclopedia lookups
 psutil>=5.9.0             # system info (cpu, memory, battery)
+pynput>=1.7.6            # media keys: play/pause, next, previous, volume

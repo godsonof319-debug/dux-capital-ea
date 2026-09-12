@@ -22,6 +22,7 @@ from typing import Callable, List, Optional, Tuple
 from urllib.parse import quote_plus
 
 from .config import config
+from . import media
 
 try:
     import requests  # type: ignore
@@ -88,6 +89,7 @@ class Skills:
         self.notes = NoteStore()
         self.handlers: List[Handler] = [
             self.skill_timer,
+            self.skill_media,
             self.skill_time,
             self.skill_date,
             self.skill_calculate,
@@ -425,6 +427,78 @@ class Skills:
             parts.append("install psutil for CPU, memory, and battery details")
         return ". ".join(parts) + "."
 
+    def skill_media(self, text: str) -> Optional[str]:
+        t = text.lower().strip()
+
+        # --- Transport controls (check these before "play <song>") ---
+        transport_map = [
+            (r"\b(pause|hold on)\b.*\b(music|song|playback|track|it)\b|\bpause\b$|^pause\b", "playpause"),
+            (r"\b(resume|unpause|continue)\b.*\b(music|song|playback|track)\b", "playpause"),
+            (r"\b(next|skip)\b.*\b(song|track)\b|\b(next track|skip song|skip this)\b|\bskip\b$|^next\b", "next"),
+            (r"\b(previous|last|go back)\b.*\b(song|track)\b|\bprevious track\b|^previous\b", "previous"),
+            (r"\b(stop)\b.*\b(music|song|playback)\b", "stop"),
+            (r"\b(turn|volume)\b.*\bup\b|\bvolume up\b|\blouder\b", "volumeup"),
+            (r"\b(turn|volume)\b.*\bdown\b|\bvolume down\b|\bquieter\b|\blower the volume\b", "volumedown"),
+            (r"\b(mute|unmute)\b", "mute"),
+        ]
+        is_playback_launch = bool(
+            re.search(r"\bplay\b", t)
+            and not re.search(r"\b(pause|resume|unpause)\b", t)
+        )
+        if not is_playback_launch:
+            for pattern, action in transport_map:
+                if re.search(pattern, t):
+                    if media.transport(action):
+                        labels = {
+                            "playpause": "Toggled playback.",
+                            "next": "Skipping to the next track.",
+                            "previous": "Going to the previous track.",
+                            "stop": "Stopping playback.",
+                            "volumeup": "Turning it up.",
+                            "volumedown": "Turning it down.",
+                            "mute": "Toggled mute.",
+                        }
+                        return labels.get(action, "Done.")
+                    if not media.controls_available():
+                        return (
+                            "I can't control media on this system yet. Install "
+                            "'pynput' (pip install pynput) to enable media keys."
+                        )
+                    return "I tried, but no active media player responded."
+
+        # --- Launch playback ---
+        # Bare "play" / "resume" -> resume playback.
+        if re.fullmatch(r"\s*(?:play|resume|unpause)\s*", t):
+            if media.transport("playpause"):
+                return "Resuming playback."
+            if not media.controls_available():
+                return "Install 'pynput' (pip install pynput) to enable playback control."
+            return "Nothing seems to be paused."
+        # "play X on spotify" / "play X on youtube" / "play X"
+        m = re.match(r"\s*play\s+(.*)", text, re.IGNORECASE)
+        if m:
+            query = m.group(1).strip(" .?")
+            if not query:
+                # bare "play" -> resume playback
+                if media.transport("playpause"):
+                    return "Resuming playback."
+                return "Play what? Try 'play some jazz on YouTube'."
+            on_spotify = bool(re.search(r"\bon\s+spotify\b", query, re.IGNORECASE))
+            on_youtube = bool(re.search(r"\bon\s+youtube\b", query, re.IGNORECASE))
+            # Strip the trailing "on <service>" from the query.
+            query = re.sub(r"\s+on\s+(?:spotify|youtube)\b", "", query, flags=re.IGNORECASE).strip()
+            # Strip a leading "some"/"the" for nicer phrasing.
+            query = re.sub(r"^(?:some|the)\s+", "", query, flags=re.IGNORECASE).strip()
+            if not query:
+                return "Play what exactly?"
+            try:
+                if on_spotify:
+                    return media.play_spotify(query)
+                return media.play_youtube(query)  # default player
+            except Exception as exc:
+                return f"I couldn't start playback: {exc}"
+        return None
+
     def skill_flip_coin(self, text: str) -> Optional[str]:
         if self._match(text, "flip a coin", "flip coin", "heads or tails", "toss a coin"):
             return random.choice(["Heads.", "Tails."])
@@ -461,7 +535,7 @@ class Skills:
             return (
                 "I can tell the time and date, do math, check the weather, look "
                 "things up on Wikipedia, search the web, open apps and websites, "
-                "take notes, report system info, tell jokes, and chat with you. "
-                "Just ask."
+                "play music and control playback, take notes, report system info, "
+                "tell jokes, and chat with you. Just ask."
             )
         return None
