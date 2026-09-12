@@ -39,7 +39,6 @@
     <button class="tab" id="tabPortal" role="tab" aria-selected="false" data-view="portal">📚 Portal</button>
     <button class="tab" id="tabResources" role="tab" aria-selected="false" data-view="resources">📂 Resources</button>
     <button class="tab" id="tabIum" role="tab" aria-selected="false" data-view="ium">🌐 Browser</button>
-    <button class="tab" id="tabAdmin" role="tab" aria-selected="false" data-view="admin" hidden>🛠️ Admin</button>
   </nav>
 
   <!-- ============ ASSISTANT VIEW ============ -->
@@ -179,90 +178,22 @@
     </div>
   </div><!-- /view-portal -->
 
-  <!-- ============ RESOURCES VIEW (student-facing library) ============ -->
+  <!-- ============ RESOURCES VIEW (bridge to your Moodle courses) ============ -->
   <div class="view" id="view-resources">
     <div class="res-wrap" id="resWrap">
       <div class="res-head">
         <h2>📂 Course Resources</h2>
         <button class="wv-btn ghost" id="resRefresh" title="Refresh">⟳</button>
       </div>
+      <div class="res-search">
+        <span class="res-search-icon">🔍</span>
+        <input id="resSearch" type="search" placeholder="Search your materials & announcements…" autocomplete="off" />
+      </div>
+      <div class="res-filters" id="resFilters"></div>
       <div id="resAnnounce"></div>
-      <div id="resModules"><div class="lms-loading">Loading…</div></div>
+      <div id="resModules"><div class="lms-empty">Sign in on the Portal tab to load your course materials.</div></div>
     </div>
   </div><!-- /view-resources -->
-
-  <!-- ============ ADMIN VIEW ============ -->
-  <div class="view" id="view-admin">
-    <!-- Admin login -->
-    <div class="lms-login" id="admLogin">
-      <div class="lms-login-card">
-        <span class="lms-logo">🛠️</span>
-        <h2>Admin</h2>
-        <p class="lms-sub">Manage modules, resources &amp; announcements</p>
-        <form id="admLoginForm">
-          <label>Admin password
-            <input id="admPass" type="password" autocomplete="current-password" required placeholder="Admin passphrase" />
-          </label>
-          <button class="send-btn lms-submit" type="submit">Sign in</button>
-          <p class="lms-msg" id="admMsg" role="alert"></p>
-        </form>
-        <p class="lms-privacy">The admin area manages your app's own resource
-        library — separate from the Moodle LMS. Enable it by setting
-        <code>ADMIN_PASSWORD</code> on the server.</p>
-      </div>
-    </div>
-
-    <!-- Admin dashboard -->
-    <div class="adm" id="admDash" hidden>
-      <div class="lms-dash-head">
-        <div class="lms-user"><span class="lms-avatar">🛠️</span><div><strong>Admin console</strong><span class="lms-site" id="admStatLine"></span></div></div>
-        <button class="wv-btn ghost" id="admLogout">Sign out</button>
-      </div>
-
-      <div class="lms-subtabs">
-        <button class="lms-subtab active" data-apanel="modules">📘 Modules</button>
-        <button class="lms-subtab" data-apanel="resources">📄 Resources</button>
-        <button class="lms-subtab" data-apanel="announce">📢 Announcements</button>
-        <button class="lms-subtab" data-apanel="stats">📊 Stats</button>
-      </div>
-
-      <div class="lms-panels">
-        <!-- Modules -->
-        <div class="lms-panel active" id="apanel-modules">
-          <form class="adm-form" id="admModForm">
-            <input id="admModCode" placeholder="Code (e.g. CS101)" />
-            <input id="admModTitle" placeholder="Module title" required />
-            <button class="send-btn" type="submit">Add module</button>
-          </form>
-          <div id="admModList"></div>
-        </div>
-        <!-- Resources -->
-        <div class="lms-panel" id="apanel-resources">
-          <form class="adm-form" id="admResForm">
-            <select id="admResModule" required></select>
-            <input id="admResTitle" placeholder="Resource title (optional)" />
-            <input id="admResFile" type="file" required />
-            <button class="send-btn" type="submit" id="admResUpload">Upload</button>
-          </form>
-          <p class="lms-msg" id="admResMsg"></p>
-          <div id="admResList"></div>
-        </div>
-        <!-- Announcements -->
-        <div class="lms-panel" id="apanel-announce">
-          <form class="adm-form col" id="admAnnForm">
-            <input id="admAnnTitle" placeholder="Announcement title" />
-            <textarea id="admAnnBody" placeholder="Message…" rows="3"></textarea>
-            <button class="send-btn" type="submit">Post announcement</button>
-          </form>
-          <div id="admAnnList"></div>
-        </div>
-        <!-- Stats -->
-        <div class="lms-panel" id="apanel-stats">
-          <div id="admStats"><div class="lms-loading">Loading…</div></div>
-        </div>
-      </div>
-    </div>
-  </div><!-- /view-admin -->
 
   <script src="/app.js"></script>
 </body>

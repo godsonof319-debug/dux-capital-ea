@@ -251,6 +251,136 @@ export async function getCalendar(sessionId) {
   }));
 }
 
+// -------- Resources bridge: every downloadable file across the student's courses.
+// This is the "bridge to Moodle" — the student's real materials, grouped by
+// course/module. Nothing is uploaded by us; we only read what Moodle exposes.
+export async function getAllResources(sessionId) {
+  const s = requireSession(sessionId);
+  const uid = s.user?.id;
+  if (!uid) throw new Error("Missing user id; please log in again.");
+  const courses = await callFunction(s.base, s.token, "core_enrol_get_users_courses", {
+    userid: uid,
+  });
+
+  const out = [];
+  // Fetch each course's contents in parallel, tolerating individual failures.
+  await Promise.all(
+    (courses || []).map(async (c) => {
+      let sections;
+      try {
+        sections = await callFunction(s.base, s.token, "core_course_get_contents", {
+          courseid: c.id,
+        });
+      } catch {
+        return;
+      }
+      const files = [];
+      for (const sec of sections || []) {
+        for (const m of sec.modules || []) {
+          for (const f of m.contents || []) {
+            if (f.type === "file" && f.fileurl) {
+              files.push({
+                title: m.name || f.filename,
+                filename: f.filename,
+                filesize: f.filesize,
+                mimetype: f.mimetype,
+                modname: m.modname,
+                section: sec.name || "",
+                timemodified: f.timemodified,
+                fileurl: f.fileurl, // downloaded via our proxy (token added server-side)
+              });
+            }
+          }
+        }
+      }
+      if (files.length) {
+        out.push({
+          courseid: c.id,
+          course: c.fullname,
+          shortname: c.shortname,
+          files,
+        });
+      }
+    })
+  );
+
+  // Newest-modified course first-ish; keep files newest first inside each.
+  out.forEach((c) => c.files.sort((a, b) => (b.timemodified || 0) - (a.timemodified || 0)));
+  return out;
+}
+
+// -------- Announcements: posts from each course's Announcements forum.
+export async function getAnnouncements(sessionId, { limit = 20 } = {}) {
+  const s = requireSession(sessionId);
+  const uid = s.user?.id;
+  const courses = await callFunction(s.base, s.token, "core_enrol_get_users_courses", {
+    userid: uid,
+  });
+
+  const announcements = [];
+  await Promise.all(
+    (courses || []).map(async (c) => {
+      // Find the announcements/news forum for this course.
+      let forums;
+      try {
+        forums = await callFunction(s.base, s.token, "mod_forum_get_forums_by_courses", {
+          courseids: [c.id],
+        });
+      } catch {
+        return;
+      }
+      const newsForum =
+        (forums || []).find((f) => f.type === "news") || (forums || [])[0];
+      if (!newsForum) return;
+      let disc;
+      try {
+        disc = await callFunction(
+          s.base,
+          s.token,
+          "mod_forum_get_forum_discussions_paginated",
+          { forumid: newsForum.id, page: 0, perpage: 10 }
+        );
+      } catch {
+        // Newer Moodle uses a different function name.
+        try {
+          disc = await callFunction(s.base, s.token, "mod_forum_get_forum_discussions", {
+            forumid: newsForum.id,
+            page: 0,
+            perpage: 10,
+          });
+        } catch {
+          return;
+        }
+      }
+      for (const d of disc?.discussions || []) {
+        announcements.push({
+          id: d.discussion || d.id,
+          course: c.fullname,
+          shortname: c.shortname,
+          title: d.name || d.subject,
+          message: stripHtml(d.message || ""),
+          author: d.userfullname || d.authorfullname || "",
+          time: d.created || d.timemodified || d.timecreated,
+        });
+      }
+    })
+  );
+
+  announcements.sort((a, b) => (b.time || 0) - (a.time || 0));
+  return announcements.slice(0, limit);
+}
+
+function stripHtml(html) {
+  return (html || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // Stream a Moodle file through our backend so the token stays server-side.
 export async function proxyFile(sessionId, fileUrl, res) {
   const s = requireSession(sessionId);

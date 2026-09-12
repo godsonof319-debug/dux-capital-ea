@@ -29,14 +29,14 @@ Inspired by Iron Man's J.A.R.V.I.S. with a neon aesthetic.
   their **courses, course materials (with downloads), grades, assignments, and
   upcoming events**. See "LMS integration" below for the security model.
 - 🗣️ **Jarvis ↔ your portal** — the assistant is wired into the LMS. Ask
-  *"what's due this week?"*, *"list my courses"*, *"what are my grades?"*, or
-  *"open the portal"* — by voice or text. If you're not signed in, Jarvis opens
-  the Portal tab for you.
-- 📂 **Resources tab** — a student-facing library of materials **your app**
-  publishes (grouped by module), with one-click downloads and announcements.
-- 🛠️ **Admin tab** — password-protected console to **upload / manage module
-  resources, post announcements, and monitor downloads** (appears only when
-  `ADMIN_PASSWORD` is set). See "Admin side" below.
+  *"what's due this week?"*, *"list my courses"*, *"what are my grades?"*,
+  *"any new announcements?"*, *"find my calculus notes"*, or *"open the portal"*
+  — by voice or text. If you're not signed in, Jarvis opens the Portal tab.
+- 📂 **Resources tab** — a **bridge to your real Moodle course materials**:
+  every downloadable file across your enrolled courses, grouped by course, with
+  **search**, per-course **filters**, your course **announcements**, and
+  one-click downloads (proxied so the token stays server-side). Nothing is
+  uploaded by the app — it mirrors what your courses already contain.
 - 🌐 **Browser tab** — an **in-app browser (webview)** with real browser chrome
   (back / forward / reload / home), an editable **address bar**, and quick-link
   bookmarks stepping from the **IUM Portal** (elearn.ium.edu.na) to the
@@ -164,41 +164,27 @@ nothing is bypassed. Point the app at any Moodle site with `LMS_URL` in `.env`
 | `GET /api/lms/assignments` | Assignments across courses (soonest due first). |
 | `GET /api/lms/calendar` | Upcoming events. |
 | `GET /api/lms/download?url=…` | Proxies a course file (token stays server-side). |
+| `GET /api/lms/resources` | Every downloadable file across the student's courses. |
+| `GET /api/lms/announcements` | Posts from each course's announcements forum. |
 
-## 🛠️ Admin side (your app's own resource library)
+## 📂 Resources — a bridge to Moodle (no uploads)
 
-Separate from the Moodle LMS, the **Admin** area manages content that belongs to
-**your** application — the pattern from the project diagram:
+The **Resources** tab does **not** host or upload anything. It's a read-only
+**bridge** that mirrors the student's real Moodle content:
 
-```
-ADMIN                          STUDENT
- ├── Manage modules             ├── Browse the Resources tab
- ├── Upload/delete resources    ├── Download materials
- ├── Post announcements         ├── Read announcements
- └── Monitor downloads          └── Ask Jarvis about the portal
-```
+- `GET /api/lms/resources` walks the student's enrolled courses
+  (`core_enrol_get_users_courses` → `core_course_get_contents`) and returns every
+  downloadable file, grouped by course.
+- `GET /api/lms/announcements` reads each course's announcements/news forum
+  (`mod_forum_get_forums_by_courses` → discussions).
+- Downloads are streamed through `GET /api/lms/download` so the Moodle **token
+  never reaches the browser**.
 
-- **Enable it** by setting `ADMIN_PASSWORD` in `.env`. If unset, the whole admin
-  API is disabled and the Admin tab stays hidden.
-- **Auth:** the passphrase is exchanged for a short-lived server-side session
-  token (no hardcoded secrets; nothing sensitive stored in the browser).
-- **Storage:** uploaded files live in `jarvis-web/data/uploads/`, metadata in
-  `data/admin-db.json` (both git-ignored). Max upload 50 MB.
-- **Students** see published materials in the **Resources tab** and downloads are
-  counted; the Admin **Stats** panel shows totals and the most-downloaded files.
-
-### Admin & resource API
-
-| Route | Auth | Purpose |
-| --- | --- | --- |
-| `GET /api/admin/status` | – | Whether admin is enabled. |
-| `POST /api/admin/login` / `logout` | – / token | Start/end an admin session. |
-| `GET /api/admin/overview` | token | Stats + modules + announcements. |
-| `GET/POST/PUT/DELETE /api/admin/modules[/:id]` | token | Manage modules. |
-| `GET/POST/DELETE /api/admin/resources[/:id]` | token | Manage resources (multipart upload). |
-| `POST/DELETE /api/admin/announcements[/:id]` | token | Manage announcements. |
-| `GET /api/resources/catalog` | – | Public catalog for students. |
-| `GET /api/resources/:id/download` | – | Download a file (increments its counter). |
+Because it's the student's own logged-in session, **access is inherently
+per-module**: you only ever see the courses you're enrolled in. In the UI you get
+a **search box** (matches titles, filenames, sections, and announcements) and
+**per-course filter chips**. Jarvis can drive it too — *"find my calculus notes"*
+searches and opens the matching files.
 
 ## 📲 Install as an app (PWA)
 
